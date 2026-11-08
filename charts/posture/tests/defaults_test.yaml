@@ -1,0 +1,15 @@
+suite: defaults
+templates:
+  - templates/*.yaml
+tests:
+  - it: renders nothing with default values (phase 1b adds the four default objects)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing with mesh istio
+    set:
+      mesh: istio
+    asserts:
+      - hasDocuments:
+          count: 0

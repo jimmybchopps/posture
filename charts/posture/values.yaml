@@ -1,0 +1,110 @@
+# posture: the security posture of the workloads in this namespace.
+#
+# Install one release per namespace. Every key below is documented; keys for features that
+# aren't built yet are not accepted, so the chart never silently ignores a setting.
+#
+# Map keys (sources, destinations, ingress, egress, and the entries under them) become parts
+# of object names: lowercase letters, digits, and "-" only.
+
+# -- The service mesh in use. Changes what is rendered alongside the NetworkPolicies.
+#    none:  NetworkPolicies only.
+#    istio: Istio ambient mode (L4). NetworkPolicies also allow TCP 15008 (HBONE) for every
+#           in-cluster peer, plus kubelet probes from 169.254.7.127/32.
+mesh: none
+
+# -- The mesh trust domain, used to build workload identities.
+trustDomain: cluster.local
+
+# -- Optional prefix for every generated object name ("team-a" gives "team-a-deny-all-ingress").
+#    Empty by default: only one posture release exists per namespace.
+namePrefix: ""
+
+# -- Deny all traffic not allowed by a rule below, per direction.
+#    Renders deny-all-ingress and deny-all-egress.
+defaultDeny:
+  ingress: true
+  egress: true
+
+# -- Allow all traffic between pods in this namespace, on every port.
+#    Renders allow-same-namespace.
+allowSameNamespace: true
+
+# -- Allow egress from every pod to the "dns" destination (kube-dns, 53/UDP and 53/TCP).
+#    Renders allow-egress-from-all-to-dns.
+allowDNS: true
+
+# -- Sources: where ingress traffic can come from, referenced by name under
+#    ingress.<target>.sources. Predefined: monitoring (namespace prometheus, workload
+#    prometheus) and ingress-gateway (namespace gateway, every pod). Entries here override
+#    a predefined source field by field, or define a new one.
+#    An entry is either inside the cluster (namespace, workload, optional selector and
+#    serviceAccount) or outside it (cidrs), never both.
+sources: {}
+#  monitoring:
+#    namespace: observability       # override: namespace only, workload stays prometheus
+#  backup-agent:                    # custom, inside the cluster
+#    namespace: backup
+#    workload: velero
+#    serviceAccount: velero
+#  office-vpn:                      # custom, outside the cluster
+#    cidrs: [10.50.0.0/16, { cidr: 10.60.0.0/16, except: [10.60.1.0/24] }]
+
+# -- Destinations: where egress traffic can go, referenced by name under
+#    egress.<source>.destinations. A destination carries its own ports.
+#    Predefined (private ranges = 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16):
+#      dns             kube-system, k8s-app=kube-dns    53/UDP, 53/TCP
+#      kubeAPI         private ranges                   443, 6443
+#      postgres        private ranges                   5432
+#      redis           private ranges                   6379
+#      https           private ranges                   443
+#      sso             private ranges                   443, 8443
+#      storage         private ranges                   443, 9000
+#      ldap            private ranges                   389, 636
+#      smtp            private ranges                   25, 587
+#      ntp             private ranges                   123/UDP
+#      syslog          private ranges                   514/UDP, 514/TCP, 6514
+#      egress-gateway  namespace gateway, every pod     15008 (mesh: istio only)
+#    Entries here override a predefined destination field by field, or define a new one.
+destinations: {}
+#  postgres:
+#    cidrs: [10.20.5.0/24]          # override: address only, ports stay 5432
+#  license-server:                  # custom, outside the cluster
+#    cidrs: [10.30.0.15/32]
+#    ports: [27000, { port: 27001, protocol: UDP }]
+#  vault:                           # custom, inside the cluster
+#    namespace: vault
+#    workload: vault
+#    ports: [8200]
+
+# -- Ingress rules, keyed by target workload in this namespace ("any" = every pod).
+#    selector:  which label the workload name matches: name (default, app.kubernetes.io/name),
+#               component, instance, or app.
+#    from:      peers keyed by workload ("any" = every pod), each with ports (required),
+#               and optional namespace (omitted = this namespace, "any" = every namespace),
+#               selector, and serviceAccount.
+#    sources:   references to predefined or custom sources; the value is the list of ports
+#               on this target (required).
+#    Ports are always numeric: 9090, or { port: 53, protocol: UDP }, or
+#    { port: 32000, endPort: 32768 }. protocol defaults to TCP.
+ingress: {}
+#  grafana:
+#    from:
+#      keycloak:
+#        namespace: keycloak
+#        serviceAccount: keycloak
+#        ports: [3000]
+#    sources:
+#      monitoring: [3000]
+#      ingress-gateway: [3000]
+
+# -- Egress rules, keyed by source workload in this namespace ("any" = every pod).
+#    to:            peers keyed by workload, same fields as ingress "from".
+#    destinations:  a list of predefined or custom destinations; ports come from their
+#                   definitions.
+egress: {}
+#  grafana:
+#    to:
+#      keycloak:
+#        namespace: keycloak
+#        ports: [8080]
+#    destinations: [postgres, sso]

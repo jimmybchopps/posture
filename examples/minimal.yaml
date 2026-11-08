@@ -1,0 +1,2 @@
+# Defaults only: deny all ingress and egress, allow traffic within the namespace and DNS.
+{}

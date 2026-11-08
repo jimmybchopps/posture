@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  chart:
+    name: chart (helm ${{ matrix.helm }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in sync with HELM_VERSIONS in the Makefile: oldest supported, latest 3.x, latest 4.x.
+        helm: ["3.14.4", "3.22.1", "4.3.1"]
+    env:
+      HELM_VERSION: ${{ matrix.helm }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/cache@v6
+        with:
+          path: .bin
+          key: tools-${{ runner.os }}-helm-${{ matrix.helm }}-${{ hashFiles('Makefile') }}
+
+      - name: Install tools
+        run: make tools
+
+      - name: helm lint --strict
+        run: make lint
+
+      - name: helm unittest
+        run: make unittest
+
+      - name: kubeconform (examples/)
+        run: make validate
+
+  # e2e (k3d with Calico) is added in phase 1.

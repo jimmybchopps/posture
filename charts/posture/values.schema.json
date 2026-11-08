@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "posture values",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "mesh": {
+      "description": "The service mesh in use.",
+      "type": "string",
+      "enum": [
+        "none",
+        "istio"
+      ]
+    },
+    "trustDomain": {
+      "description": "The mesh trust domain, used to build workload identities.",
+      "type": "string",
+      "minLength": 1
+    },
+    "namePrefix": {
+      "description": "Optional prefix for every generated object name.",
+      "type": "string",
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+    },
+    "defaultDeny": {
+      "description": "Deny all traffic not allowed by a rule, per direction.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ingress": {
+          "type": "boolean"
+        },
+        "egress": {
+          "type": "boolean"
+        }
+      }
+    },
+    "allowSameNamespace": {
+      "description": "Allow all traffic between pods in this namespace.",
+      "type": "boolean"
+    },
+    "allowDNS": {
+      "description": "Allow egress from every pod to the dns destination.",
+      "type": "boolean"
+    },
+    "sources": {
+      "description": "Overrides of predefined sources, and custom sources.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+      }
+    },
+    "destinations": {
+      "description": "Overrides of predefined destinations, and custom destinations.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+      }
+    },
+    "ingress": {
+      "description": "Ingress rules, keyed by target workload.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+      }
+    },
+    "egress": {
+      "description": "Egress rules, keyed by source workload.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+      }
+    }
+  }
+}
