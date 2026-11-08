@@ -1,0 +1,6 @@
+posture {{ .Chart.Version }} is installed in namespace {{ .Release.Namespace }} (mesh: {{ .Values.mesh }}).
+
+See which objects it created, and the rule each one came from:
+
+  kubectl get networkpolicies -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
+    -o custom-columns='NAME:.metadata.name,RULE:.metadata.annotations.posture\.dev/rule'

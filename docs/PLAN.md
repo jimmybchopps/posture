@@ -11,17 +11,29 @@ Each phase ends with its acceptance criteria passing in CI.
 
 ## Phase 0: repository setup
 
-- [ ] `charts/posture/` with `Chart.yaml` (apiVersion v2, type application, version 0.1.0),
+- [x] `charts/posture/` with `Chart.yaml` (apiVersion v2, type application, version 0.1.0),
       `values.yaml` documenting every key with comments, a `values.schema.json` skeleton, and
       `_helpers.tpl` with labels and `posture.name`, the naming convention from CLAUDE.md
       (tokens for `any`, optional `namePrefix`, length check).
-- [ ] Tooling: helm-unittest plugin, kubeconform, k3d. Pin versions in a `Makefile` or
+- [x] Tooling: helm-unittest plugin, kubeconform, k3d. Pin versions in a `Makefile` or
       `.tool-versions`.
-- [ ] CI (GitLab or GitHub, wherever the repo lives): `helm lint --strict`, `helm unittest`,
+- [x] CI (GitLab or GitHub, wherever the repo lives): `helm lint --strict`, `helm unittest`,
       kubeconform over every file in `examples/`. The e2e job is added in phase 1.
-- [ ] Support Helm 3 (3.14 or later) and Helm 4; run unit tests under both.
+- [x] Support Helm 3 (3.14 or later) and Helm 4; run unit tests under both.
 
 **Done when** an empty install lints, templates to the default objects only, and CI is green.
+
+Decisions made in phase 0:
+
+- The default install renders **no objects** in phase 0; the four default objects arrive in 1b,
+  which updates `tests/defaults_test.yaml` to expect them.
+- `values.yaml` and the schema accept only keys that are implemented. Each phase adds its own
+  keys (`authorization`, `mtls`, `exceptions`, `networkPolicy`), and the `mesh` enum grows to
+  `linkerd` and `cilium` in phase 5, so a setting is never accepted and silently ignored.
+- Tool versions are pinned in the `Makefile` only (one source of truth); `make tools` installs
+  them into `.bin/`, with a separate Helm home per Helm version. CI tests Helm 3.14.4, the
+  latest 3.x, and the latest 4.x. Helm 3.14 can't load helm-unittest 1.1.0 or later, so the
+  Makefile uses 1.0.3 there.
 
 ---
 

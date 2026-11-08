@@ -1,0 +1,94 @@
+suite: values schema
+templates:
+  - templates/*.yaml
+tests:
+  - it: accepts a valid namePrefix and name-shaped map keys
+    set:
+      namePrefix: team-a
+      sources:
+        backup-agent: {}
+      destinations:
+        license-server: {}
+      ingress:
+        grafana: {}
+        any: {}
+      egress:
+        prometheus2: {}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects an unknown top-level key
+    set:
+      mtls:
+        mode: STRICT
+    asserts:
+      - failedTemplate:
+          errorPattern: "mtls"
+
+  - it: rejects a mesh that isn't supported yet
+    set:
+      mesh: linkerd
+    asserts:
+      - failedTemplate:
+          errorPattern: "mesh"
+
+  - it: rejects a misspelled defaultDeny direction
+    set:
+      defaultDeny:
+        ingres: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "ingres"
+
+  - it: rejects a non-boolean allowDNS
+    set:
+      allowDNS: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowDNS"
+
+  - it: rejects an empty trustDomain
+    set:
+      trustDomain: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "trustDomain"
+
+  - it: rejects a namePrefix that isn't a valid name part
+    set:
+      namePrefix: Team_A
+    asserts:
+      - failedTemplate:
+          errorPattern: "namePrefix"
+
+  - it: rejects an uppercase key in ingress
+    set:
+      ingress:
+        Grafana: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "Grafana"
+
+  - it: rejects a key with an underscore in sources
+    set:
+      sources:
+        backup_agent: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "backup_agent"
+
+  - it: rejects a key ending in a hyphen in destinations
+    set:
+      destinations:
+        vault-: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "vault-"
+
+  - it: rejects a key with a dot in egress
+    set:
+      egress:
+        grafana.v2: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "grafana.v2"

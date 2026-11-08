@@ -1,0 +1,18 @@
+apiVersion: v2
+name: posture
+description: >-
+  Sets the security posture of the workloads in one namespace: network policies,
+  authorization policies, mTLS settings, and admission-policy exceptions.
+type: application
+version: 0.1.0
+home: https://github.com/jimmybchopps/posture
+sources:
+  - https://github.com/jimmybchopps/posture
+keywords:
+  - networkpolicy
+  - security
+  - istio
+  - linkerd
+  - cilium
+annotations:
+  licenses: Apache-2.0

@@ -304,6 +304,10 @@ docs/PLAN.md              build order and open questions
 
 ## Testing
 
+`make tools` installs the pinned versions into `.bin/`; `make test` runs lint, unit tests, and
+kubeconform; `make test-all-helm` repeats that under every supported Helm version. The
+underlying commands:
+
     helm lint --strict charts/posture
     helm unittest charts/posture                      # plugin: helm-unittest
     helm template t charts/posture -f examples/<x>.yaml | kubeconform -strict -summary \
@@ -320,7 +324,7 @@ NetworkPolicy.
 
 | Phase | Area | Status |
 |---|---|---|
-| 0 | Repo setup, tooling, CI | not started |
+| 0 | Repo setup, tooling, CI | done (CI pending first run) |
 | 1 | Network policies | not started |
 | 2 | Authorization policies (Istio first) | not started |
 | 3 | mTLS with per-port exclusions | not started |
