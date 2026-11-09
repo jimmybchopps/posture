@@ -41,23 +41,40 @@ Decisions made in phase 0:
 
 ### 1a. Presets and the model
 
-- [ ] `_presets.tpl`: the predefined sources and destinations from CLAUDE.md.
-- [ ] Preset merging: user entries merge field by field over presets; an in-cluster field
+- [x] `_presets.tpl`: the predefined sources and destinations from CLAUDE.md.
+- [x] Preset merging: user entries merge field by field over presets; an in-cluster field
       (`namespace`, `workload`, `podSelector`) drops the preset's `cidrs`; `cidrs` together
       with an in-cluster field in user values is a `fail`. New names are allowed.
-- [ ] `_model.tpl`: normalize `ingress` and `egress` into rules, each with its object name,
+- [x] `_model.tpl`: normalize `ingress` and `egress` into rules, each with its object name,
       direction, target `podSelector`, normalized peers, and normalized ports.
-- [ ] Selector resolution with the precedence entry > rule > `name`, mapping the short names
+- [x] Selector resolution with the precedence entry > rule > `name`, mapping the short names
       to labels.
-- [ ] The reserved key `any`, for targets and for peers, with `namespace` omitted, set, or
+- [x] The reserved key `any`, for targets and for peers, with `namespace` omitted, set, or
       `any` (see the table in CLAUDE.md).
-- [ ] Ports: required and non-empty everywhere they appear; numbers or port objects with a
+- [x] Ports: required and non-empty everywhere they appear; numbers or port objects with a
       numeric `port`; `protocol` defaults to TCP. Port names are a schema error.
-- [ ] Unknown preset references (`destinations: [postgress]`) `fail` with the list of known
+- [x] Unknown preset references (`destinations: [postgress]`) `fail` with the list of known
       names.
-- [ ] Schema: selector enum, port shape, `endPort >= port`, `any` not allowed as a
-      `serviceAccount` or selector value, each `from`/`to` entry is either a workload entry
-      or a `cidrs` entry.
+- [x] Schema: selector enum, port shape, `any` not allowed as a `serviceAccount` or selector
+      value, each `from`/`to` entry is either a workload entry or a `cidrs` entry.
+      `endPort >= port` is checked in `_model.tpl` (draft-07 can't compare two fields).
+
+Decisions made in 1a:
+
+- Overrides work in both directions: `cidrs` on an in-cluster preset drops its namespace and
+  workload, just as an in-cluster field drops a preset's `cidrs`.
+- New in-cluster sources and destinations use `workload: any` for every pod in a namespace;
+  `workload` (or `podSelector`) is required for new in-cluster entries.
+- `podSelector` is only for source and destination definitions, not `from`/`to` entries.
+- The preset `kubeAPI` is renamed `kube-api`: object names must be lowercase, and keys follow
+  the same rule.
+- `allowDNS` is an ordinary rule in the model (egress from `any` to `dns`), so its name comes
+  from the convention and an overridden `dns` destination applies to it.
+- `templates/validate.yaml` builds the model on every render, so bad values fail the install
+  even before a renderer uses them.
+- The model is tested directly through `test/model-probe/`, a test-only chart that depends on
+  `charts/posture` and prints the model. Renderer tests in 1b and later can stay small.
+- The schema accepts Helm's `global` key, which Helm adds when the chart is a dependency.
 
 ### 1b. Rendered policies
 

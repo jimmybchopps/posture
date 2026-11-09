@@ -1,0 +1,14 @@
+{{- /*
+One document for the model's top-level fields (kind: Model), then one per rule (kind: Rule),
+so tests can pick a rule with documentSelector on its name.
+*/ -}}
+{{- $root := dict "Values" .Values.posture "Release" .Release "Chart" .Chart -}}
+{{- $model := include "posture.model" $root | fromJson -}}
+kind: Model
+name: model
+{{ omit $model "rules" | toYaml }}
+{{- range $model.rules }}
+---
+kind: Rule
+{{ toYaml . }}
+{{- end }}

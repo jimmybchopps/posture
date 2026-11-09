@@ -1,0 +1,103 @@
+suite: model failures
+templates:
+  - templates/validate.yaml
+tests:
+  - it: valid values render nothing
+    set:
+      ingress.grafana.sources.monitoring: [3000]
+      egress.grafana.destinations: [postgres]
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: an unknown destination fails with the known names
+    set:
+      egress.grafana.destinations: [postgress]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.grafana.destinations.postgress: unknown destination "postgress"; known: dns, egress-gateway, https, kube-api, ldap, ntp, postgres, redis, smtp, sso, storage, syslog$'
+
+  - it: the known names include custom destinations
+    set:
+      destinations.vault: { namespace: vault, workload: vault, ports: [8200] }
+      egress.grafana.destinations: [vualt]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'known: .*syslog, vault$'
+
+  - it: an unknown source fails with the known names
+    set:
+      ingress.grafana.sources.monitor: [3000]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: ingress.grafana.sources.monitor: unknown source "monitor"; known: ingress-gateway, monitoring$'
+
+  - it: cidrs with an in-cluster field in one user entry fails
+    set:
+      destinations.postgres: { cidrs: [10.0.0.0/8], namespace: db }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: destinations.postgres: cidrs can't be combined with namespace"
+
+  - it: cidrs with several in-cluster fields names them all
+    set:
+      sources.office: { cidrs: [10.0.0.0/8], namespace: x, workload: y }
+    asserts:
+      - failedTemplate:
+          errorPattern: "cidrs can't be combined with namespace, workload;"
+
+  - it: workload and podSelector in one entry fail
+    set:
+      sources.monitoring: { workload: vmagent, podSelector: { app: vmagent } }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: sources.monitoring: set workload or podSelector, not both"
+
+  - it: a custom in-cluster entry needs a workload or podSelector
+    set:
+      sources.backup: { namespace: backup }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: sources.backup: set workload"
+
+  - it: a custom destination needs ports
+    set:
+      destinations.vault: { namespace: vault, workload: vault }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: destinations.vault: a destination needs ports"
+
+  - it: definitions fail even when unused
+    set:
+      destinations.unused: { cidrs: [10.0.0.0/8] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "destinations.unused: a destination needs ports"
+
+  - it: egress-gateway fails with mesh none
+    set:
+      egress.grafana.destinations: [egress-gateway]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.grafana.destinations.egress-gateway: the destination "egress-gateway" needs mesh: istio .*; mesh is none$'
+
+  - it: egress-gateway works with mesh istio
+    set:
+      mesh: istio
+      egress.grafana.destinations: [egress-gateway]
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: endPort lower than port fails
+    set:
+      ingress.grafana.from.renderer: { ports: [{ port: 9000, endPort: 8000 }] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana.from.renderer: endPort 8000 is lower than port 9000"
+
+  - it: endPort lower than port fails in a destination definition, naming the reference
+    set:
+      destinations.range: { cidrs: [10.0.0.0/8], ports: [{ port: 9000, endPort: 8000 }] }
+      egress.grafana.destinations: [range]
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.grafana.destinations.range: endPort 8000"

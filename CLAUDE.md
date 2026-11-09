@@ -166,13 +166,22 @@ anyone can set.
 ### Predefined sources and destinations
 
 Defined in `templates/_presets.tpl`, not in `values.yaml`, so the chart knows which fields a
-user set. A user entry is merged field by field over the preset, with one rule: setting
-`namespace`, `workload`, or `podSelector` makes the entry in-cluster and drops the preset's
-`cidrs`. Setting both `cidrs` and an in-cluster field in user values is an error. Users can
-also add new names.
+user set. A user entry is merged field by field over the preset, with these rules:
+
+- Setting `namespace`, `workload`, or `podSelector` makes the entry in-cluster and drops the
+  preset's `cidrs`.
+- Setting `cidrs` makes it outside the cluster and drops the preset's in-cluster fields
+  (`namespace`, `workload`, `selector`, `podSelector`, `serviceAccount`).
+- `workload` and `podSelector` replace each other.
+- One user entry can't set both `cidrs` and an in-cluster field, both `workload` and
+  `podSelector`, or `selector` with `podSelector`; each is a `fail`.
+
+Users can also add new names. A new in-cluster entry needs `workload` or `podSelector`, and
+a new destination needs `ports`. `any` can't be used as a source or destination name.
 
 An entry is either **outside the cluster** (`cidrs`) or **inside** (`namespace` plus
-`workload` and optional `selector`, or a raw `podSelector`). Never express an in-cluster
+`workload` and optional `selector`, or a raw `podSelector`). `workload: any` means every pod
+in the namespace, and an omitted `namespace` means this namespace. Never express an in-cluster
 target with `cidrs`: NetworkPolicy `ipBlock` is meant for cluster-external addresses, and
 Cilium doesn't match pods with it at all.
 
@@ -181,7 +190,7 @@ Cilium doesn't match pods with it at all.
 | Destination | Default | Ports |
 |---|---|---|
 | `dns` | `kube-system`, podSelector `k8s-app: kube-dns` | 53/UDP, 53/TCP |
-| `kubeAPI` | private ranges | 443, 6443 |
+| `kube-api` | private ranges | 443, 6443 |
 | `postgres` | private ranges | 5432 |
 | `redis` | private ranges | 6379 |
 | `https` | private ranges | 443 |
@@ -299,6 +308,7 @@ charts/posture/
   tests/                  helm-unittest suites, one folder per output
 examples/                 complete values files that double as e2e fixtures
 test/e2e/                 k3d scripts: allowed traffic connects, denied traffic doesn't
+test/model-probe/         test-only chart that prints the model for helm-unittest
 docs/PLAN.md              build order and open questions
 ```
 
@@ -324,8 +334,8 @@ NetworkPolicy.
 
 | Phase | Area | Status |
 |---|---|---|
-| 0 | Repo setup, tooling, CI | done (CI pending first run) |
-| 1 | Network policies | not started |
+| 0 | Repo setup, tooling, CI | done |
+| 1 | Network policies | 1a done (presets, model, schema); 1b next |
 | 2 | Authorization policies (Istio first) | not started |
 | 3 | mTLS with per-port exclusions | not started |
 | 4 | Policy exceptions | not started |

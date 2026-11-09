@@ -14,6 +14,8 @@ KUBECTL_VERSION       := 1.37.2
 HELM_VERSIONS := $(HELM_MIN_VERSION) $(HELM3_LATEST_VERSION) $(HELM_VERSION)
 
 CHART    := charts/posture
+# Test-only chart that renders posture's model so tests can assert on it (test/model-probe).
+PROBE    := test/model-probe
 EXAMPLES := $(wildcard examples/*.yaml)
 CRDS_CATALOG := https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
 
@@ -86,7 +88,8 @@ lint: $(HELM)
 	done
 
 unittest: $(UNITTEST_PLUGIN)
-	$(HELM) unittest $(CHART)
+	$(HELM) dependency update --skip-refresh $(PROBE) >/dev/null
+	$(HELM) unittest $(CHART) $(PROBE)
 
 validate: $(HELM) $(KUBECONFORM)
 	@set -e; for f in $(EXAMPLES); do \

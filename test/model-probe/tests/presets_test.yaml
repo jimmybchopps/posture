@@ -1,0 +1,180 @@
+suite: model presets
+templates:
+  - templates/model.yaml
+tests:
+  # Defaults
+  - it: monitoring defaults to workload prometheus in namespace prometheus
+    set:
+      posture.ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: prometheus } }
+      - equal: { path: peer.namespace, value: { scope: named, name: prometheus } }
+
+  - it: ingress-gateway defaults to every pod in namespace gateway
+    set:
+      posture.ingress.grafana.sources.ingress-gateway: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-ingress-gateway-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: {} }
+      - equal: { path: peer.namespace, value: { scope: named, name: gateway } }
+
+  - it: private-range destinations use the three private ranges
+    set:
+      posture.egress.grafana.destinations: [postgres]
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-postgres }
+    asserts:
+      - equal:
+          path: peer.cidrs
+          value:
+            - { cidr: 10.0.0.0/8, except: [] }
+            - { cidr: 172.16.0.0/12, except: [] }
+            - { cidr: 192.168.0.0/16, except: [] }
+      - equal: { path: ports, value: [{ port: 5432, protocol: TCP }] }
+
+  - it: every predefined destination resolves with its ports
+    set:
+      posture.mesh: istio
+      posture.allowDNS: false
+      posture.egress.any.destinations: [dns, kube-api, postgres, redis, https, sso, storage, ldap, smtp, ntp, syslog, egress-gateway]
+    asserts:
+      - hasDocuments: { count: 13 }
+      - equal:
+          path: ports
+          value: [{ port: 514, protocol: UDP }, { port: 514, protocol: TCP }, { port: 6514, protocol: TCP }]
+        documentSelector: { path: name, value: allow-egress-from-all-to-syslog }
+      - equal:
+          path: ports
+          value: [{ port: 123, protocol: UDP }]
+        documentSelector: { path: name, value: allow-egress-from-all-to-ntp }
+      - equal:
+          path: ports
+          value: [{ port: 443, protocol: TCP }, { port: 6443, protocol: TCP }]
+        documentSelector: { path: name, value: allow-egress-from-all-to-kube-api }
+
+  - it: egress-gateway is every pod in namespace gateway on 15008 with mesh istio
+    set:
+      posture.mesh: istio
+      posture.egress.grafana.destinations: [egress-gateway]
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-egress-gateway }
+    asserts:
+      - equal: { path: peer.labels, value: {} }
+      - equal: { path: peer.namespace, value: { scope: named, name: gateway } }
+      - equal: { path: ports, value: [{ port: 15008, protocol: TCP }] }
+      - notExists: { path: peer.requiresMesh }
+
+  # Overrides
+  - it: override namespace only keeps the preset's workload
+    set:
+      posture.sources.monitoring: { namespace: observability }
+      posture.ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: prometheus } }
+      - equal: { path: peer.namespace, value: { scope: named, name: observability } }
+
+  - it: override cidrs only keeps the preset's ports
+    set:
+      posture.destinations.postgres: { cidrs: [10.20.5.0/24] }
+      posture.egress.grafana.destinations: [postgres]
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-postgres }
+    asserts:
+      - equal: { path: peer.cidrs, value: [{ cidr: 10.20.5.0/24, except: [] }] }
+      - equal: { path: ports, value: [{ port: 5432, protocol: TCP }] }
+
+  - it: override ports only keeps the preset's addresses
+    set:
+      posture.destinations.storage: { ports: [2049] }
+      posture.egress.grafana.destinations: [storage]
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-storage }
+    asserts:
+      - equal: { path: peer.inCluster, value: false }
+      - lengthEqual: { path: peer.cidrs, count: 3 }
+      - equal: { path: ports, value: [{ port: 2049, protocol: TCP }] }
+
+  - it: switching to in-cluster drops the preset's cidrs
+    set:
+      posture.destinations.postgres: { namespace: databases, workload: postgres }
+      posture.egress.grafana.destinations: [postgres]
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-postgres }
+    asserts:
+      - equal:
+          path: peer
+          value:
+            key: postgres
+            inCluster: true
+            labels: { app.kubernetes.io/name: postgres }
+            namespace: { scope: named, name: databases }
+            serviceAccount: ""
+      - equal: { path: ports, value: [{ port: 5432, protocol: TCP }] }
+
+  - it: switching to outside the cluster drops the preset's namespace and workload
+    set:
+      posture.sources.monitoring: { cidrs: [192.0.2.0/24] }
+      posture.ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal:
+          path: peer
+          value: { key: monitoring, inCluster: false, cidrs: [{ cidr: 192.0.2.0/24, except: [] }] }
+
+  - it: workload replaces the preset's podSelector
+    set:
+      posture.destinations.dns: { workload: coredns }
+    documentSelector: { path: name, value: allow-egress-from-all-to-dns }
+    asserts:
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: coredns } }
+      - equal: { path: peer.namespace, value: { scope: named, name: kube-system } }
+
+  - it: selector and podSelector in one entry fail
+    set:
+      posture.sources.monitoring: { selector: instance, podSelector: { app: vmagent } }
+    asserts:
+      - failedTemplate:
+          errorPattern: "sources.monitoring: selector applies to workload"
+
+  - it: podSelector replaces the preset's workload
+    set:
+      posture.sources.monitoring: { podSelector: { app: vmagent } }
+      posture.ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: { app: vmagent } }
+      - equal: { path: peer.namespace, value: { scope: named, name: prometheus } }
+
+  - it: a new in-cluster source with a serviceAccount
+    set:
+      posture.sources.backup-agent: { namespace: backup, workload: velero, serviceAccount: velero }
+      posture.ingress.grafana.sources.backup-agent: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-backup-agent-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: velero } }
+      - equal: { path: peer.namespace, value: { scope: named, name: backup } }
+      - equal: { path: peer.serviceAccount, value: velero }
+
+  - it: a new source with workload any is every pod in its namespace
+    set:
+      posture.sources.tooling: { namespace: tooling, workload: any }
+      posture.ingress.grafana.sources.tooling: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-tooling-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: {} }
+      - equal: { path: peer.namespace, value: { scope: named, name: tooling } }
+
+  - it: a new in-cluster destination without namespace is in this namespace
+    set:
+      posture.destinations.cache: { workload: memcached, ports: [11211] }
+      posture.egress.grafana.destinations: [cache]
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-cache }
+    asserts:
+      - equal: { path: peer.namespace, value: { scope: same, name: "" } }
+      - equal: { path: ports, value: [{ port: 11211, protocol: TCP }] }
+
+  - it: a new outside destination with mixed ports
+    set:
+      posture.destinations.license-server: { cidrs: [10.30.0.15/32], ports: [27000, { port: 27001, protocol: UDP }] }
+      posture.egress.grafana.destinations: [license-server]
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-license-server }
+    asserts:
+      - equal: { path: peer.cidrs, value: [{ cidr: 10.30.0.15/32, except: [] }] }
+      - equal: { path: ports, value: [{ port: 27000, protocol: TCP }, { port: 27001, protocol: UDP }] }

@@ -37,8 +37,11 @@ allowDNS: true
 #    ingress.<target>.sources. Predefined: monitoring (namespace prometheus, workload
 #    prometheus) and ingress-gateway (namespace gateway, every pod). Entries here override
 #    a predefined source field by field, or define a new one.
-#    An entry is either inside the cluster (namespace, workload, optional selector and
-#    serviceAccount) or outside it (cidrs), never both.
+#    An entry is either inside the cluster (namespace, plus workload with optional selector,
+#    or a raw podSelector; optional serviceAccount) or outside it (cidrs), never both.
+#    workload: any means every pod in the namespace; an omitted namespace means this one.
+#    Overriding a preset with cidrs drops its namespace and workload; overriding it with
+#    namespace, workload, or podSelector drops its cidrs. The same applies to destinations.
 sources: {}
 #  monitoring:
 #    namespace: observability       # override: namespace only, workload stays prometheus
@@ -53,7 +56,7 @@ sources: {}
 #    egress.<source>.destinations. A destination carries its own ports.
 #    Predefined (private ranges = 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16):
 #      dns             kube-system, k8s-app=kube-dns    53/UDP, 53/TCP
-#      kubeAPI         private ranges                   443, 6443
+#      kube-api        private ranges                   443, 6443
 #      postgres        private ranges                   5432
 #      redis           private ranges                   6379
 #      https           private ranges                   443

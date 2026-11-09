@@ -1,0 +1,6 @@
+posture:
+  ingress:
+    grafana:
+      from:
+        renderer:
+          ports: [3000, { port: 9400, endPort: 9499 }]
