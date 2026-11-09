@@ -107,18 +107,18 @@ Decisions made in 1b:
 
 ### 1c. Tests and examples
 
-- [ ] Unit tests: every peer form in the translation list, every selector value and the
+- [x] Unit tests: every peer form in the translation list, every selector value and the
       precedence, every port form, preset overrides (cidrs only, ports only, switch to
       in-cluster, new name), the `fail` cases, every row of the naming tables in CLAUDE.md,
       the collision `fail`, and name stability when keys are added.
-- [ ] `examples/`:
+- [x] `examples/`:
       - `minimal.yaml`: defaults only
       - `prometheus.yaml`: the `prometheus` namespace, egress to every namespace on listed
         metrics ports
       - `grafana.yaml`: `ingress-gateway` and `monitoring` sources in, `postgres` and `sso` out
       - `strict.yaml`: `allowSameNamespace: false`
       - `istio.yaml`: `grafana.yaml` with `mesh: istio`
-- [ ] e2e on k3d with Calico (flannel disabled): deploy a server and client pods in two
+- [ ] e2e on k3d (harness written: `test/e2e/`; Istio install and first real run pending) with Calico (flannel disabled): deploy a server and client pods in two
       namespaces, apply each example, and check that allowed connections succeed and denied
       ones time out, including Prometheus scraping into another namespace. With
       `mesh: istio`, also check that meshed traffic on a listed port connects (15008 added),
@@ -126,6 +126,20 @@ Decisions made in 1b:
 
 **Done when** every example renders, validates with kubeconform, and passes e2e with
 `mesh: none` and `mesh: istio`.
+
+Decisions made in 1c:
+
+- `prometheus.yaml` includes port 3000 so the e2e test can scrape Grafana across namespaces.
+- The external host for the `cidrs` presets is a plain container on the k3d Docker network
+  (a 172.x address, inside the private ranges), never a pod IP.
+- e2e deny means "no HTTP response" rather than "timeout": under ambient, ztunnel can reset a
+  blocked connection. Every scenario first runs all its checks without posture (baseline), so
+  a deny can't pass because a server was broken.
+- Example snapshots are committed (`charts/posture/tests/__snapshot__/`); update them with
+  `make unittest-update` after reviewing the change.
+- The Istio checks live in the `grafana-prometheus` scenario under `MESH=istio`. A meshed
+  intruder's denied connection is the 15008 check (its HBONE to 15008 is what's blocked), and
+  a grafana restart under the policy is the probe check.
 
 ---
 

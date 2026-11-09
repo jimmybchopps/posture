@@ -1,0 +1,29 @@
+# Snapshots of every example's rendered output. After an intended change, review the diff and
+# update with: make unittest-update
+suite: examples
+templates:
+  - templates/networkpolicy/*.yaml
+release:
+  name: posture
+  namespace: example
+tests:
+  - it: minimal
+    values: [../../../examples/minimal.yaml]
+    asserts:
+      - matchSnapshot: {}
+  - it: prometheus
+    values: [../../../examples/prometheus.yaml]
+    asserts:
+      - matchSnapshot: {}
+  - it: grafana
+    values: [../../../examples/grafana.yaml]
+    asserts:
+      - matchSnapshot: {}
+  - it: strict
+    values: [../../../examples/strict.yaml]
+    asserts:
+      - matchSnapshot: {}
+  - it: istio
+    values: [../../../examples/istio.yaml]
+    asserts:
+      - matchSnapshot: {}

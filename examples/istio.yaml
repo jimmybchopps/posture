@@ -1,0 +1,13 @@
+# grafana.yaml under Istio ambient. Rules whose peer is inside the cluster also allow TCP 15008
+# (HBONE), and kubelet probes are allowed from 169.254.7.127/32.
+mesh: istio
+
+ingress:
+  grafana:
+    sources:
+      ingress-gateway: [3000]
+      monitoring: [3000]
+
+egress:
+  grafana:
+    destinations: [postgres, sso]

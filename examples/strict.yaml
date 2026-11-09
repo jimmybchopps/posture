@@ -1,0 +1,15 @@
+# No blanket same-namespace allow: pods in this namespace only reach each other where a rule
+# says so, in both directions (web's egress to api, and api's ingress from web).
+allowSameNamespace: false
+
+ingress:
+  api:
+    from:
+      web:
+        ports: [8080]
+
+egress:
+  web:
+    to:
+      api:
+        ports: [8080]

@@ -9,6 +9,13 @@ HELM_UNITTEST_LEGACY_VERSION := 1.0.3
 KUBECONFORM_VERSION   := 0.8.0
 K3D_VERSION           := 5.9.0
 KUBECTL_VERSION       := 1.37.2
+# e2e (test/e2e/run.sh)
+K3S_IMAGE             := rancher/k3s:v1.37.2-k3s1
+CALICO_VERSION        := 3.33.0
+ISTIO_VERSION         := 1.31.4
+AGNHOST_IMAGE         := registry.k8s.io/e2e-test-images/agnhost:2.61
+CURL_IMAGE            := curlimages/curl:8.23.0
+MESH                  ?= none
 
 # Every Helm version this chart supports; `make test-all-helm` runs the suite under each.
 HELM_VERSIONS := $(HELM_MIN_VERSION) $(HELM3_LATEST_VERSION) $(HELM_VERSION)
@@ -39,13 +46,14 @@ export HELM_DATA_HOME   := $(HELM_HOME)/data
 UNITTEST_PLUGIN := $(HELM_PLUGINS)/helm-unittest
 UNITTEST_VERSION := $(if $(filter 3.14.%,$(HELM_VERSION)),$(HELM_UNITTEST_LEGACY_VERSION),$(HELM_UNITTEST_VERSION))
 
-.PHONY: help tools tools-e2e lint unittest validate test test-all-helm e2e clean
+.PHONY: help tools tools-e2e lint unittest unittest-update validate test test-all-helm e2e clean
 
 help:
 	@echo "make tools          install helm $(HELM_VERSION), helm-unittest, kubeconform into .bin/"
 	@echo "make test           lint, unittest, validate"
 	@echo "make test-all-helm  make test under Helm $(HELM_VERSIONS)"
-	@echo "make e2e            k3d end-to-end tests (phase 1)"
+	@echo "make e2e MESH=none  k3d end-to-end tests (MESH=istio too); E2E_KEEP=1 keeps the cluster"
+	@echo "make unittest-update  regenerate example snapshots (review the diff)"
 	@echo "HELM_VERSION=x.y.z selects the Helm version for any target."
 
 tools: $(HELM) $(UNITTEST_PLUGIN) $(KUBECONFORM)
@@ -91,6 +99,10 @@ unittest: $(UNITTEST_PLUGIN)
 	$(HELM) dependency update --skip-refresh $(PROBE) >/dev/null
 	$(HELM) unittest $(CHART) $(PROBE)
 
+# Regenerate the example snapshots after an intended change; review the diff before committing.
+unittest-update: $(UNITTEST_PLUGIN)
+	$(HELM) unittest -u $(CHART)
+
 validate: $(HELM) $(KUBECONFORM)
 	@set -e; for f in $(EXAMPLES); do \
 	  echo "==> kubeconform $$f"; \
@@ -107,8 +119,12 @@ test-all-helm:
 	  $(MAKE) --no-print-directory test HELM_VERSION=$$v; \
 	done
 
-e2e: tools-e2e
-	@echo "e2e tests arrive in phase 1 (test/e2e/run.sh)"; exit 1
+# Needs Docker. Extra arguments go to run.sh via E2E_ARGS (e.g. E2E_ARGS=strict).
+e2e: $(HELM) tools-e2e
+	K3D=$(K3D) KUBECTL=$(KUBECTL) HELM=$(HELM) \
+	K3S_IMAGE=$(K3S_IMAGE) CALICO_VERSION=$(CALICO_VERSION) ISTIO_VERSION=$(ISTIO_VERSION) \
+	AGNHOST_IMAGE=$(AGNHOST_IMAGE) CURL_IMAGE=$(CURL_IMAGE) \
+	  test/e2e/run.sh $(MESH) $(E2E_ARGS)
 
 clean:
 	rm -rf $(BIN)

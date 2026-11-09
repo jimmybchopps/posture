@@ -332,7 +332,13 @@ underlying commands:
     helm template t charts/posture -f examples/<x>.yaml | kubeconform -strict -summary \
       -schema-location default \
       -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
-    test/e2e/run.sh <mesh>                           # k3d; needs docker, k3d, kubectl, helm
+    make e2e MESH=none|istio                          # test/e2e/run.sh; needs Docker
+                                                      # E2E_KEEP=1 keeps the cluster,
+                                                      # E2E_ARGS=strict runs one scenario
+    make unittest-update                              # regenerate example snapshots
+
+Snapshots of every example's output are committed under `charts/posture/tests/__snapshot__/`;
+review the diff before updating them.
 
 Every feature gets unit tests for each `mesh` value it affects, including the `fail` cases. A
 rule change isn't done until an e2e case shows the allowed path connects and a denied path
@@ -344,7 +350,7 @@ NetworkPolicy.
 | Phase | Area | Status |
 |---|---|---|
 | 0 | Repo setup, tooling, CI | done |
-| 1 | Network policies | 1a, 1b done (model, NetworkPolicy renderer); 1c next |
+| 1 | Network policies | 1a, 1b done; 1c: unit tests and examples done, e2e harness written (Istio install and first real run pending) |
 | 2 | Authorization policies (Istio first) | not started |
 | 3 | mTLS with per-port exclusions | not started |
 | 4 | Policy exceptions | not started |
