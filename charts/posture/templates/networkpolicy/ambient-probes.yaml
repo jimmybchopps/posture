@@ -1,0 +1,14 @@
+{{- /*
+Istio ambient: kubelet probes arrive from 169.254.7.127/32 (SNAT by ztunnel), so every pod
+accepts ingress from that address, on every port, whenever ingress is default-deny.
+*/ -}}
+{{- $model := include "posture.model" . | fromJson -}}
+{{- if $model.networkPolicy.ingress -}}
+{{- with $model.fixed.ambientProbes }}
+---
+{{ include "posture.np.object" (dict "root" $ "name" .name "rule" .rule "spec" (dict
+  "podSelector" (dict)
+  "policyTypes" (list "Ingress")
+  "ingress" (list (dict "from" (list (dict "ipBlock" (dict "cidr" "169.254.7.127/32"))))))) }}
+{{- end -}}
+{{- end -}}

@@ -78,16 +78,32 @@ Decisions made in 1a:
 
 ### 1b. Rendered policies
 
-- [ ] `deny-all-ingress`, `deny-all-egress`, `allow-same-namespace`,
+- [x] `deny-all-ingress`, `deny-all-egress`, `allow-same-namespace`,
       `allow-egress-from-all-to-dns`, and `allow-ingress-from-ambient-probes-to-all`
       (`mesh: istio` only).
-- [ ] `mesh: istio`: add TCP 15008 to every ingress and egress rule whose peer is inside the
+- [x] `mesh: istio`: add TCP 15008 to every ingress and egress rule whose peer is inside the
       cluster (not to `cidrs` rules), deduplicated. NetworkPolicies only.
-- [ ] One NetworkPolicy per target and peer pair (each `from`/`to` entry and each
+- [x] One NetworkPolicy per target and peer pair (each `from`/`to` entry and each
       `sources`/`destinations` reference), named `allow-<direction>-from-<source>-to-<destination>`.
-- [ ] Collision check: two rules producing the same name fail the render, naming both.
-- [ ] `posture.dev/rule` annotation on every object.
-- [ ] NOTES.txt warning: `namespace: any` on a named workload without `serviceAccount`.
+- [x] Collision check: two rules producing the same name fail the render, naming both.
+- [x] `posture.dev/rule` annotation on every object.
+- [x] NOTES.txt warning: `namespace: any` on a named workload without `serviceAccount`.
+
+Decisions made in 1b:
+
+- `defaultDeny` is replaced by `networkPolicy: { ingress, egress }`, a per-direction
+  troubleshooting switch. Any NetworkPolicy that selects a pod for a direction denies the rest
+  of that direction, so `defaultDeny: false` never took effect while `allowDNS`,
+  `allowSameNamespace`, or the probe policy were on. Off now means nothing at all is rendered
+  for that direction; rules are still validated and stay in the model (phase 2 reads them).
+  NOTES.txt warns loudly.
+- The deny objects are annotated `networkPolicy.ingress` / `networkPolicy.egress`, and the
+  probe policy `mesh`.
+- The collision check lives in the model and covers fixed objects and every rule, including
+  rules in a disabled direction, so names can't start colliding when a switch is flipped back.
+- 15008 is skipped only when exactly TCP 15008 is listed; a range that covers it still gets
+  it added (harmless).
+- The untrusted-label NOTES warning covers egress peers and custom sources/destinations too.
 
 ### 1c. Tests and examples
 
@@ -118,7 +134,7 @@ Decisions made in 1a:
 Generated from `ingress` (authorization is enforced at the destination, so `egress` stays
 NetworkPolicy-only). Enforced by ztunnel at L4.
 
-- [ ] When `mesh: istio` and `defaultDeny.ingress`: a namespace-wide allow-nothing
+- [ ] When `mesh: istio` and `authorization.enabled`: a namespace-wide allow-nothing
       AuthorizationPolicy (empty spec) named `deny-all-ingress`.
 - [ ] `allowSameNamespace`: ALLOW from `namespaces: [<this namespace>]`, named
       `allow-same-namespace`.
@@ -213,13 +229,13 @@ exceptions:
       (identity `<sa>.<ns>.serviceaccount.identity.linkerd.<trustDomain>`) or
       `NetworkAuthentication` for `cidrs`; mTLS via `Server.spec.accessPolicy`
       (`all-authenticated`, or `all-unauthenticated` for excluded ports).
-- [ ] Cilium: `networkPolicy: cilium` renders `CiliumNetworkPolicy` instead of NetworkPolicy;
+- [ ] Cilium: `networkPolicy.provider: cilium` renders `CiliumNetworkPolicy` instead of NetworkPolicy;
       identity rules match `io.cilium.k8s.policy.serviceaccount`; strict mTLS requires Cilium
       mutual authentication, or `fail`s unless the values explicitly accept encryption-only.
 - [ ] Cilium as the gateway: Cilium's Gateway API traffic arrives from its shared Envoy with
       the reserved `ingress` identity, not from pods in a `gateway` namespace. When the
       cluster uses Cilium's gateway, the `ingress-gateway` source renders as
-      `fromEntities: [ingress]` (needs `networkPolicy: cilium`).
+      `fromEntities: [ingress]` (needs `networkPolicy.provider: cilium`).
 - [ ] Linkerd and Cilium `fail` on the `egress-gateway` destination with an explanation (it
       only exists for Istio's egress waypoint).
 - [ ] Golden files: one example, three meshes, reviewed side by side.

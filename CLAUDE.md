@@ -34,7 +34,7 @@ The build order is in `docs/PLAN.md`. Work through it phase by phase.
   from map keys (see "Naming"), so names say what they allow and adding or removing one rule
   never renames another object.
 - **Every generated object says why it exists**: annotation `posture.dev/rule` with the key
-  path it came from (`ingress.grafana`, `allowDNS`, `defaultDeny`, ...).
+  path it came from (`ingress.grafana`, `allowDNS`, `networkPolicy.ingress`, ...).
 - **No Neutron Star vocabulary.** The words "bundle" and "package" never appear in the chart.
   Neutron Star fills these values from its plan, but the chart must be useful on its own.
 
@@ -44,7 +44,8 @@ The build order is in `docs/PLAN.md`. Work through it phase by phase.
 mesh: none                      # none | istio | linkerd | cilium   (istio first; others later)
 trustDomain: cluster.local      # used to build mesh identities
 
-defaultDeny: { ingress: true, egress: true }   # the default when omitted
+networkPolicy: { ingress: true, egress: true } # false for a direction = no NetworkPolicies
+                                               # for it at all (troubleshooting only)
 allowSameNamespace: true        # all traffic between pods in this namespace
 allowDNS: true                  # egress from every pod to the "dns" destination
 
@@ -221,7 +222,13 @@ this destination.
 
 ## Rendering rules (network policies)
 
-- `defaultDeny`: one NetworkPolicy, `podSelector: {}`, with the chosen `policyTypes`.
+- `networkPolicy.<direction>`: each enabled direction is default-deny, one NetworkPolicy
+  per direction with `podSelector: {}`. A disabled direction renders **nothing**: no deny,
+  no fixed allows, no rules (they're still validated, stay in the model, and other layers
+  still use them). It's a troubleshooting switch, and NOTES.txt says so loudly.
+  A direction can't be partly managed: any NetworkPolicy that selects a pod for a direction
+  already denies everything else in that direction, so `allowDNS` alone (every pod) would
+  make egress default-deny anyway.
 - `allowSameNamespace`: one NetworkPolicy allowing ingress from and egress to `podSelector: {}`.
 - `allowDNS`: one NetworkPolicy, egress from every pod to the `dns` destination.
 - Each pair of target and peer renders its own NetworkPolicy: one per `from` entry and per
@@ -270,7 +277,7 @@ Fixed objects use the same style:
 
 | Object | Name |
 |---|---|
-| default deny | `deny-all-ingress`, `deny-all-egress` (one object per direction) |
+| default deny (`networkPolicy.<direction>`) | `deny-all-ingress`, `deny-all-egress` (one object per direction) |
 | `allowSameNamespace` | `allow-same-namespace` |
 | `allowDNS` | `allow-egress-from-all-to-dns` |
 | Istio ambient kubelet probes | `allow-ingress-from-ambient-probes-to-all` |
@@ -300,7 +307,9 @@ charts/posture/
     _helpers.tpl          the naming convention (posture.name), labels, collision checks
     _presets.tpl          predefined sources and destinations
     _model.tpl            values -> normalized model (selectors, peers, ports, presets merged)
-    networkpolicy/        default-deny, same-namespace, dns, ambient-probes, ingress, egress
+    networkpolicy/        default-deny, same-namespace, ambient-probes, rules (every model
+                          rule, allowDNS included), _networkpolicy.tpl (peer and port helpers)
+    validate.yaml         builds the model on every render so bad values always fail
     istio/                authorizationpolicy, peerauthentication        (phases 2-3)
     linkerd/  cilium/     phase 5
     exceptions/           admission-policy exceptions object             (phase 4)
@@ -335,7 +344,7 @@ NetworkPolicy.
 | Phase | Area | Status |
 |---|---|---|
 | 0 | Repo setup, tooling, CI | done |
-| 1 | Network policies | 1a done (presets, model, schema); 1b next |
+| 1 | Network policies | 1a, 1b done (model, NetworkPolicy renderer); 1c next |
 | 2 | Authorization policies (Istio first) | not started |
 | 3 | mTLS with per-port exclusions | not started |
 | 4 | Policy exceptions | not started |

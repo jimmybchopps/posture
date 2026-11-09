@@ -10,7 +10,7 @@ tests:
       - equal: { path: mesh, value: none }
       - equal: { path: namespace, value: team }
       - equal: { path: trustDomain, value: cluster.local }
-      - equal: { path: defaultDeny, value: { ingress: true, egress: true } }
+      - equal: { path: networkPolicy, value: { ingress: true, egress: true } }
       - equal: { path: allowSameNamespace, value: true }
 
   - it: carries overridden toggles
@@ -18,13 +18,13 @@ tests:
       posture:
         mesh: istio
         trustDomain: example.org
-        defaultDeny: { ingress: false }
+        networkPolicy: { ingress: false }
         allowSameNamespace: false
     documentSelector: { path: name, value: model }
     asserts:
       - equal: { path: mesh, value: istio }
       - equal: { path: trustDomain, value: example.org }
-      - equal: { path: defaultDeny, value: { ingress: false, egress: true } }
+      - equal: { path: networkPolicy, value: { ingress: false, egress: true } }
       - equal: { path: allowSameNamespace, value: false }
 
   - it: with defaults, the only rule is allowDNS
@@ -96,3 +96,53 @@ tests:
             destinations: [postgres, sso, postgres]
     asserts:
       - hasDocuments: { count: 4 }
+
+  - it: fixed objects by default
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal:
+          path: fixed
+          value:
+            denyIngress: { name: deny-all-ingress, rule: networkPolicy.ingress }
+            denyEgress: { name: deny-all-egress, rule: networkPolicy.egress }
+            sameNamespace: { name: allow-same-namespace, rule: allowSameNamespace }
+
+  - it: istio adds the ambient probe object
+    set:
+      posture.mesh: istio
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal:
+          path: fixed.ambientProbes
+          value: { name: allow-ingress-from-ambient-probes-to-all, rule: mesh }
+
+  - it: allowSameNamespace false drops its fixed object
+    set:
+      posture.allowSameNamespace: false
+    documentSelector: { path: name, value: model }
+    asserts:
+      - notExists: { path: fixed.sameNamespace }
+
+  - it: fixed objects stay in the model when a direction is off
+    set:
+      posture.networkPolicy: { ingress: false, egress: false }
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: fixed.denyIngress.name, value: deny-all-ingress }
+      - equal: { path: fixed.denyEgress.name, value: deny-all-egress }
+
+  - it: rules stay in the model when their direction is off
+    set:
+      posture.networkPolicy.egress: false
+    documentSelector: { path: name, value: allow-egress-from-all-to-dns }
+    asserts:
+      - equal: { path: rule, value: allowDNS }
+
+  - it: namePrefix applies to fixed objects
+    set:
+      posture.namePrefix: team-a
+      posture.mesh: istio
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: fixed.denyIngress.name, value: team-a-deny-all-ingress }
+      - equal: { path: fixed.ambientProbes.name, value: team-a-allow-ingress-from-ambient-probes-to-all }

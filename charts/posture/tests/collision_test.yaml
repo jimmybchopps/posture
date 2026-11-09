@@ -1,0 +1,55 @@
+suite: name collisions
+templates:
+  - templates/validate.yaml
+tests:
+  - it: a from key that shadows a source preset
+    set:
+      ingress.grafana.from.monitoring: { namespace: monitoring, ports: [3000] }
+      ingress.grafana.sources.monitoring: [3000]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: ingress.grafana.from.monitoring and ingress.grafana.sources.monitoring both produce the object name "allow-ingress-from-monitoring-to-grafana"; rename or remove one$'
+
+  - it: a dns destination next to allowDNS
+    set:
+      egress.any.destinations: [dns]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.any.destinations.dns and allowDNS both produce the object name "allow-egress-from-all-to-dns"'
+
+  - it: no collision with allowDNS off
+    set:
+      allowDNS: false
+      egress.any.destinations: [dns]
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a rule named like the istio probe policy
+    set:
+      mesh: istio
+      ingress.any.from.ambient-probes: { ports: [8080] }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: mesh and ingress.any.from.ambient-probes both produce the object name "allow-ingress-from-ambient-probes-to-all"'
+
+  - it: the same rule without istio is fine
+    set:
+      ingress.any.from.ambient-probes: { ports: [8080] }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a collision in a disabled direction still fails
+    set:
+      networkPolicy.egress: false
+      egress.any.destinations: [dns]
+    asserts:
+      - failedTemplate:
+          errorPattern: "both produce the object name"
+
+  - it: collisions are checked after namePrefix
+    set:
+      namePrefix: team-a
+      egress.any.destinations: [dns]
+    asserts:
+      - failedTemplate:
+          errorPattern: '"team-a-allow-egress-from-all-to-dns"'

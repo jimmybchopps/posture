@@ -7,7 +7,12 @@ model, many renderers"). Renderers call:
 Shape:
 
   mesh, namespace, trustDomain, allowSameNamespace
-  defaultDeny: { ingress, egress }
+  networkPolicy: { ingress, egress }      # which directions get NetworkPolicies
+  fixed:                                  # fixed objects; a key is absent when not wanted
+    denyIngress:   { name, rule }         # deny-all-ingress
+    denyEgress:    { name, rule }         # deny-all-egress
+    sameNamespace: { name, rule }         # allow-same-namespace (allowSameNamespace)
+    ambientProbes: { name, rule }         # allow-ingress-from-ambient-probes-to-all (istio)
   rules:                                  # one per target and peer pair, in values order
     - name: allow-ingress-from-keycloak-to-grafana
       rule: ingress.grafana.from.keycloak # the posture.dev/rule annotation
@@ -24,7 +29,11 @@ Shape:
         cidrs: [{ cidr, except: [] }]     #                    (outside only)
       ports: [{ port, protocol, endPort? }]
 
-The model is mesh-neutral: labels and namespace scopes, never NetworkPolicy fields.
+The model is mesh-neutral: labels and namespace scopes, never NetworkPolicy fields. It holds
+every rule whatever networkPolicy says; each renderer decides what it renders.
+
+Object names are unique across fixed and rules (posture.checkCollisions), including rules a
+renderer skips, so turning a direction back on can't introduce a collision.
 
 Note: fromJson turns numbers into float64. Renderers must use `int` on port numbers before
 formatting them with printf.
@@ -293,11 +302,44 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
   {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "egress" "rule" "allowDNS" "target" (dict "key" "any" "labels" (dict)) "peerKey" "dns" "peerSpec" $found.definition "peerToken" "dns" "defaultSelector" "name" "ports" $found.definition.ports) -}}
 {{- end -}}
 
+{{- $fixed := dict
+  "denyIngress" (dict "name" (include "posture.name" (dict "root" $root "rule" "networkPolicy.ingress" "fixed" "deny-all-ingress")) "rule" "networkPolicy.ingress")
+  "denyEgress" (dict "name" (include "posture.name" (dict "root" $root "rule" "networkPolicy.egress" "fixed" "deny-all-egress")) "rule" "networkPolicy.egress") -}}
+{{- if $v.allowSameNamespace -}}
+  {{- $_ := set $fixed "sameNamespace" (dict "name" (include "posture.name" (dict "root" $root "rule" "allowSameNamespace" "fixed" "allow-same-namespace")) "rule" "allowSameNamespace") -}}
+{{- end -}}
+{{- if eq $mesh "istio" -}}
+  {{- $_ := set $fixed "ambientProbes" (dict "name" (include "posture.name" (dict "root" $root "rule" "mesh" "fixed" "allow-ingress-from-ambient-probes-to-all")) "rule" "mesh") -}}
+{{- end -}}
+
+{{- $_ := include "posture.checkCollisions" (dict "fixed" $fixed "rules" $acc.rules) -}}
+
 {{- toJson (dict
   "mesh" $mesh
   "namespace" .Release.Namespace
   "trustDomain" $v.trustDomain
-  "defaultDeny" (dict "ingress" $v.defaultDeny.ingress "egress" $v.defaultDeny.egress)
+  "networkPolicy" (dict "ingress" $v.networkPolicy.ingress "egress" $v.networkPolicy.egress)
   "allowSameNamespace" $v.allowSameNamespace
+  "fixed" $fixed
   "rules" $acc.rules) -}}
+{{- end -}}
+
+{{/*
+Fail if two objects would get the same name, naming both values paths.
+Fixed objects are checked first, so a rule that collides with one is reported against it.
+Input: dict "fixed" <dict of {name, rule}> "rules" <list>
+*/}}
+{{- define "posture.checkCollisions" -}}
+{{- $seen := dict -}}
+{{- $all := list -}}
+{{- range $key := list "denyIngress" "denyEgress" "sameNamespace" "ambientProbes" -}}
+  {{- with get $.fixed $key -}}{{- $all = append $all . -}}{{- end -}}
+{{- end -}}
+{{- range .rules -}}{{- $all = append $all . -}}{{- end -}}
+{{- range $all -}}
+  {{- if hasKey $seen .name -}}
+    {{- fail (printf "posture: %s and %s both produce the object name %q; rename or remove one" (get $seen .name) .rule .name) -}}
+  {{- end -}}
+  {{- $_ := set $seen .name .rule -}}
+{{- end -}}
 {{- end -}}

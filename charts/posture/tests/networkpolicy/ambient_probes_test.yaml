@@ -1,0 +1,28 @@
+suite: networkpolicy ambient probes
+templates:
+  - templates/networkpolicy/ambient-probes.yaml
+tests:
+  - it: renders nothing with mesh none
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: allows ingress from the ambient probe address to every pod, on every port
+    set:
+      mesh: istio
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-ingress-from-ambient-probes-to-all }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: mesh }
+      - equal:
+          path: spec
+          value:
+            podSelector: {}
+            policyTypes: [Ingress]
+            ingress: [{ from: [{ ipBlock: { cidr: 169.254.7.127/32 } }] }]
+
+  - it: renders nothing with ingress off
+    set:
+      mesh: istio
+      networkPolicy.ingress: false
+    asserts:
+      - hasDocuments: { count: 0 }

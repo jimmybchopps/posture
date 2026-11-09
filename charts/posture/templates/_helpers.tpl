@@ -47,7 +47,7 @@ all-namespaces
 The name of a generated object, with namePrefix applied and the length limit enforced.
 
 Either a fixed name:
-  include "posture.name" (dict "root" $ "rule" "defaultDeny" "fixed" "deny-all-ingress")
+  include "posture.name" (dict "root" $ "rule" "networkPolicy.ingress" "fixed" "deny-all-ingress")
 or the allow convention, allow-<direction>-from-<source>-to-<destination>, with tokens from
 posture.targetToken and posture.peerToken:
   include "posture.name" (dict "root" $ "rule" "ingress.grafana.from.keycloak"

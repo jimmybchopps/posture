@@ -1,15 +1,48 @@
 suite: defaults
 templates:
-  - templates/*.yaml
+  - templates/networkpolicy/*.yaml
+release:
+  namespace: team
 tests:
-  - it: renders nothing with default values (phase 1b adds the four default objects)
+  - it: renders the four default objects (deny ingress, deny egress, same namespace, DNS)
     asserts:
-      - hasDocuments:
-          count: 0
+      - hasDocuments: { count: 2 }
+        template: templates/networkpolicy/default-deny.yaml
+      - containsDocument: { kind: NetworkPolicy, apiVersion: networking.k8s.io/v1, name: deny-all-ingress, namespace: team, any: true }
+        template: templates/networkpolicy/default-deny.yaml
+      - containsDocument: { kind: NetworkPolicy, apiVersion: networking.k8s.io/v1, name: deny-all-egress, namespace: team, any: true }
+        template: templates/networkpolicy/default-deny.yaml
+      - hasDocuments: { count: 1 }
+        template: templates/networkpolicy/same-namespace.yaml
+      - containsDocument: { kind: NetworkPolicy, apiVersion: networking.k8s.io/v1, name: allow-same-namespace, namespace: team }
+        template: templates/networkpolicy/same-namespace.yaml
+      - hasDocuments: { count: 1 }
+        template: templates/networkpolicy/rules.yaml
+      - containsDocument: { kind: NetworkPolicy, apiVersion: networking.k8s.io/v1, name: allow-egress-from-all-to-dns, namespace: team }
+        template: templates/networkpolicy/rules.yaml
+      - hasDocuments: { count: 0 }
+        template: templates/networkpolicy/ambient-probes.yaml
 
-  - it: renders nothing with mesh istio
+  - it: adds the probe policy with mesh istio
     set:
       mesh: istio
     asserts:
-      - hasDocuments:
-          count: 0
+      - hasDocuments: { count: 1 }
+        template: templates/networkpolicy/ambient-probes.yaml
+      - containsDocument: { kind: NetworkPolicy, apiVersion: networking.k8s.io/v1, name: allow-ingress-from-ambient-probes-to-all, namespace: team }
+        template: templates/networkpolicy/ambient-probes.yaml
+
+  - it: every object carries the chart labels and a posture.dev/rule annotation
+    set:
+      mesh: istio
+    asserts:
+      - equal: { path: 'metadata.labels["app.kubernetes.io/name"]', value: posture }
+      - equal: { path: 'metadata.labels["app.kubernetes.io/managed-by"]', value: Helm }
+      - exists: { path: 'metadata.annotations["posture.dev/rule"]' }
+
+  - it: namePrefix applies to every object
+    set:
+      mesh: istio
+      namePrefix: team-a
+    asserts:
+      - matchRegex: { path: metadata.name, pattern: ^team-a- }

@@ -1,0 +1,9 @@
+{{- /* deny-all-ingress and deny-all-egress, one per enabled direction. */ -}}
+{{- $model := include "posture.model" . | fromJson -}}
+{{- range $direction := list "ingress" "egress" -}}
+{{- if get $model.networkPolicy $direction -}}
+{{- $fixed := get $model.fixed (ternary "denyIngress" "denyEgress" (eq $direction "ingress")) }}
+---
+{{ include "posture.np.object" (dict "root" $ "name" $fixed.name "rule" $fixed.rule "spec" (dict "podSelector" (dict) "policyTypes" (list (title $direction)))) }}
+{{- end -}}
+{{- end -}}

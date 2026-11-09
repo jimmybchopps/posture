@@ -19,9 +19,13 @@ trustDomain: cluster.local
 #    Empty by default: only one posture release exists per namespace.
 namePrefix: ""
 
-# -- Deny all traffic not allowed by a rule below, per direction.
-#    Renders deny-all-ingress and deny-all-egress.
-defaultDeny:
+# -- NetworkPolicies per direction. Each enabled direction is default-deny (deny-all-ingress,
+#    deny-all-egress) plus the allows below. Turning a direction off renders NO NetworkPolicy
+#    for it: not the deny, not allowSameNamespace/allowDNS/probes, not your rules (they're
+#    still validated, and still used by other layers). Troubleshooting only.
+#    A direction can't be partly managed: any NetworkPolicy that selects a pod for a
+#    direction already denies everything else in that direction.
+networkPolicy:
   ingress: true
   egress: true
 

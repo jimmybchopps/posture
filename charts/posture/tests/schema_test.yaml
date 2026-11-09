@@ -32,9 +32,9 @@ tests:
       - failedTemplate:
           errorPattern: "mesh"
 
-  - it: rejects a misspelled defaultDeny direction
+  - it: rejects a misspelled networkPolicy direction
     set:
-      defaultDeny:
+      networkPolicy:
         ingres: false
     asserts:
       - failedTemplate:

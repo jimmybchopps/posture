@@ -22,8 +22,8 @@
       "type": "string",
       "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
     },
-    "defaultDeny": {
-      "description": "Deny all traffic not allowed by a rule, per direction.",
+    "networkPolicy": {
+      "description": "NetworkPolicies per direction; false renders none for that direction (troubleshooting only).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
