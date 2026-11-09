@@ -52,6 +52,7 @@ else
   delete_cluster
   create_cluster
   install_cni
+  # TODO(istio): the Istio Helm installation goes in install_istio (test/e2e/lib.sh).
   if [[ $MESH == istio ]]; then install_istio; fi
 fi
 start_external
