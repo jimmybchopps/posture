@@ -350,7 +350,7 @@ NetworkPolicy.
 | Phase | Area | Status |
 |---|---|---|
 | 0 | Repo setup, tooling, CI | done |
-| 1 | Network policies | 1a, 1b done; 1c: unit tests and examples done, e2e harness written (Istio install and first real run pending) |
+| 1 | Network policies | done (three wrong-port denies fail under `mesh: istio` until phase 2; see docs/PLAN.md 1c) |
 | 2 | Authorization policies (Istio first) | not started |
 | 3 | mTLS with per-port exclusions | not started |
 | 4 | Policy exceptions | not started |

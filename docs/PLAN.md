@@ -118,7 +118,7 @@ Decisions made in 1b:
       - `grafana.yaml`: `ingress-gateway` and `monitoring` sources in, `postgres` and `sso` out
       - `strict.yaml`: `allowSameNamespace: false`
       - `istio.yaml`: `grafana.yaml` with `mesh: istio`
-- [ ] e2e on k3d (harness written: `test/e2e/`; Istio install and first real run pending) with Calico (flannel disabled): deploy a server and client pods in two
+- [x] e2e on k3d (`test/e2e/`) with Calico (flannel disabled): deploy a server and client pods in two
       namespaces, apply each example, and check that allowed connections succeed and denied
       ones time out, including Prometheus scraping into another namespace. With
       `mesh: istio`, also check that meshed traffic on a listed port connects (15008 added),
@@ -140,6 +140,35 @@ Decisions made in 1c:
 - The Istio checks live in the `grafana-prometheus` scenario under `MESH=istio`. A meshed
   intruder's denied connection is the 15008 check (its HBONE to 15008 is what's blocked), and
   a grafana restart under the policy is the probe check.
+- Calico is installed with the Tigera operator, following k3d's guide
+  (https://k3d.io/v5.9.0/usage/advanced/calico/) as closely as possible: k3s gets
+  `--cluster-cidr=192.168.0.0/16` to match the unmodified `custom-resources.yaml`. istio-cni
+  uses its chart defaults (`/etc/cni/net.d`, `/opt/cni/bin`), which is where the operator puts
+  Calico's CNI files; `global.platform=k3s` points elsewhere and must not be set.
+- Istio charts come from `https://blob.istio.io/istio-release/charts`; 1.31 and later aren't
+  published to the old `istio-release.storage.googleapis.com`, which shuts down on
+  2026-12-16.
+- Under `MESH=istio`, the harness restarts every workload after installing posture and before
+  the policy checks. ztunnel pools the HBONE connections the baseline checks opened and sends
+  later requests over them, and NetworkPolicy only judges new connections, so without the
+  restart every in-cluster deny connected. ztunnel itself isn't restarted: that briefly breaks
+  all meshed traffic, which a deny check would count as a pass. The same behaviour affects real
+  clusters: under ambient, a stricter posture doesn't cut existing connections between meshed
+  workloads until they reconnect.
+
+**Accepted failures (until phase 2).** Phase 1 is complete with `mesh: none` passing in full
+and `mesh: istio` passing everything except three wrong-port denies (48 passed, 3 failed):
+
+- `strict`: `deny apps/web -> api.apps:8081`
+- `grafana-prometheus`: `deny gateway/envoy -> grafana.grafana:3001`
+- `grafana-prometheus`: `deny prometheus/prometheus -> x.intruder:8081`
+
+Each peer is allowed on another port, so 15008 is open between the pair, and between meshed
+pods Calico only ever sees 15008, never the original port. NetworkPolicy under ambient limits
+which workloads can talk, not on which ports. The port limit is enforced by the phase 2
+AuthorizationPolicies (ztunnel checks the original port after unwrapping HBONE). These checks
+are left failing, with no changes to the harness or the chart, as phase 2's target. Until then
+the `mesh: istio` e2e job in CI is expected to fail on exactly these three.
 
 ---
 
@@ -171,7 +200,8 @@ NetworkPolicy-only). Enforced by ztunnel at L4.
 - [ ] `authorization.enabled` (default true when `mesh` isn't `none`).
 - [ ] Unit tests for every row and the `fail` cases. e2e: a pod with the right labels but the
       wrong service account is refused by the mesh even though the NetworkPolicy lets it
-      through; test each layer with the other relaxed.
+      through; test each layer with the other relaxed. The three wrong-port denies accepted as
+      failing in phase 1 (see "Accepted failures" under 1c) must pass under `MESH=istio`.
 
 **Done when** e2e shows NetworkPolicy and AuthorizationPolicy each block traffic on their own.
 
