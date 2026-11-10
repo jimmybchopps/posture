@@ -39,6 +39,7 @@ create_cluster() {
     --agents 1 \
     --k3s-arg '--flannel-backend=none@server:*' \
     --k3s-arg '--disable-network-policy@server:*' \
+    --k3s-arg '--cluster-cidr=192.168.0.0/16@server:*' \
     --k3s-arg '--disable=traefik@server:*' \
     --wait
 }
@@ -47,33 +48,24 @@ delete_cluster() {
   "$K3D" cluster delete "$CLUSTER" >/dev/null 2>&1 || true
 }
 
-# Calico from the upstream manifest, adjusted for k3s: the pod CIDR k3s assigns, IP forwarding
-# in containers, and k3s's CNI directories instead of /etc/cni/net.d and /opt/cni/bin.
-# NOTE: not yet run against a real cluster (the dev environment can't run Docker); the k3s CNI
-# paths are the likeliest thing to need adjusting.
+# Calico through the Tigera operator, following k3d's guide as closely as possible:
+# https://k3d.io/v5.9.0/usage/advanced/calico/
+# The upstream custom-resources.yaml is applied unmodified; its IP pool (192.168.0.0/16) matches
+# the --cluster-cidr that create_cluster passes to k3s. If you change one, change the other.
 install_cni() {
-  log "installing Calico ${CALICO_VERSION}"
-  local manifest
-  manifest=$(mktemp)
-  curl -fsSL "https://raw.githubusercontent.com/projectcalico/calico/v${CALICO_VERSION}/manifests/calico.yaml" -o "$manifest" \
-    || die "can't download the Calico ${CALICO_VERSION} manifest"
-  sed -i \
-    -e 's|# - name: CALICO_IPV4POOL_CIDR|- name: CALICO_IPV4POOL_CIDR|' \
-    -e 's|#   value: "192.168.0.0/16"|  value: "10.42.0.0/16"|' \
-    -e 's|"type": "calico",|"type": "calico", "container_settings": { "allow_ip_forwarding": true },|' \
-    -e 's|path: /etc/cni/net.d|path: /var/lib/rancher/k3s/agent/etc/cni/net.d|' \
-    -e 's|path: /opt/cni/bin|path: /var/lib/rancher/k3s/data/cni|' \
-    "$manifest"
-  "$KUBECTL" apply -f "$manifest" >/dev/null
-  rm -f "$manifest"
-  "$KUBECTL" -n kube-system rollout status daemonset/calico-node --timeout=120s
-  "$KUBECTL" -n kube-system rollout status deployment/calico-kube-controllers --timeout=120s
+  log "installing Calico ${CALICO_VERSION} (Tigera operator)"
+  "$KUBECTL" create -f "https://raw.githubusercontent.com/projectcalico/calico/v${CALICO_VERSION}/manifests/tigera-operator.yaml"
+  "$KUBECTL" create -f "https://raw.githubusercontent.com/projectcalico/calico/v${CALICO_VERSION}/manifests/custom-resources.yaml"
+  # The guide's "kubectl get tigerastatus" check, as a wait. The status object only appears once
+  # the operator has picked up the Installation, so wait for it to exist first.
+  "$KUBECTL" wait --for=create tigerastatus/calico --timeout=120s
+  "$KUBECTL" wait --for=condition=Available tigerastatus/calico --timeout=120s
   "$KUBECTL" -n kube-system rollout status deployment/coredns --timeout=120s
 }
 
 install_istio() {
   log "installing Istio ${ISTIO_VERSION} (ambient)"
-  "$HELM" repo add istio https://istio-release.storage.googleapis.com/charts
+  "$HELM" repo add istio https://blob.istio.io/istio-release/charts --force-update
   "$HELM" install istio-base istio/base     -n istio-system --create-namespace --version "$ISTIO_VERSION" --wait
   "$HELM" install istiod     istio/istiod   -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --wait
   "$HELM" install istio-cni  istio/cni      -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --set global.platform=k3s --wait
