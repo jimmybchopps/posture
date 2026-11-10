@@ -6,7 +6,16 @@
 # Output
 
 log() { printf '\n==> %s\n' "$*"; }
+info() { printf '    %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+quiet() { # quiet <command...>: runs it silently; prints its output only if it fails
+  local out
+  if ! out=$("$@" 2>&1); then
+    printf '%s\n' "$out" >&2
+    return 1
+  fi
+}
 
 PASSED=0
 FAILED=0
@@ -34,7 +43,7 @@ summary() {
 
 create_cluster() {
   log "creating k3d cluster ${CLUSTER} (${K3S_IMAGE}, flannel and k3s network policy disabled)"
-  "$K3D" cluster create "$CLUSTER" \
+  quiet "$K3D" cluster create "$CLUSTER" \
     --image "$K3S_IMAGE" \
     --agents 1 \
     --k3s-arg '--flannel-backend=none@server:*' \
@@ -54,24 +63,34 @@ delete_cluster() {
 # the --cluster-cidr that create_cluster passes to k3s. If you change one, change the other.
 install_cni() {
   log "installing Calico ${CALICO_VERSION} (Tigera operator)"
-  "$KUBECTL" create -f "https://raw.githubusercontent.com/projectcalico/calico/v${CALICO_VERSION}/manifests/tigera-operator.yaml"
-  "$KUBECTL" create -f "https://raw.githubusercontent.com/projectcalico/calico/v${CALICO_VERSION}/manifests/custom-resources.yaml"
+  quiet "$KUBECTL" create -f "https://raw.githubusercontent.com/projectcalico/calico/v${CALICO_VERSION}/manifests/tigera-operator.yaml"
+  quiet "$KUBECTL" create -f "https://raw.githubusercontent.com/projectcalico/calico/v${CALICO_VERSION}/manifests/custom-resources.yaml"
+  info "operator and custom resources created; waiting for Calico"
   # The guide's "kubectl get tigerastatus" check, as a wait. The status object only appears once
   # the operator has picked up the Installation, so wait for it to exist first.
-  "$KUBECTL" wait --for=create tigerastatus/calico --timeout=120s
-  "$KUBECTL" wait --for=condition=Available tigerastatus/calico --timeout=180s
-  "$KUBECTL" -n kube-system rollout status deployment/coredns --timeout=120s
+  quiet "$KUBECTL" wait --for=create tigerastatus/calico --timeout=120s
+  quiet "$KUBECTL" wait --for=condition=Available tigerastatus/calico --timeout=180s
+  quiet "$KUBECTL" -n kube-system rollout status deployment/coredns --timeout=120s
+  info "Calico and CoreDNS are ready"
 }
 
 install_istio() {
   log "installing Istio ${ISTIO_VERSION} (ambient)"
-  "$HELM" repo add istio https://blob.istio.io/istio-release/charts --force-update
-  "$HELM" install istio-base istio/base     -n istio-system --create-namespace --version "$ISTIO_VERSION" --wait
-  "$HELM" install istiod     istio/istiod   -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --wait
-  "$HELM" install istio-cni  istio/cni      -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --wait
-  "$HELM" install ztunnel    istio/ztunnel  -n istio-system --version "$ISTIO_VERSION" --wait
-  "$KUBECTL" -n istio-system rollout status daemonset/istio-cni-node --timeout=300s
-  "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s
+  quiet "$HELM" repo add istio https://blob.istio.io/istio-release/charts --force-update
+  istio_chart istio-base base    --create-namespace
+  istio_chart istiod     istiod  --set profile=ambient
+  istio_chart istio-cni  cni     --set profile=ambient
+  istio_chart ztunnel    ztunnel
+  quiet "$KUBECTL" -n istio-system rollout status daemonset/istio-cni-node --timeout=300s
+  quiet "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s
+  info "istio-cni and ztunnel are ready on every node"
+}
+
+istio_chart() { # istio_chart <release> <chart> [helm args...]
+  local release=$1 chart=$2
+  shift 2
+  quiet "$HELM" install "$release" "istio/$chart" -n istio-system --version "$ISTIO_VERSION" --wait "$@"
+  info "${release} installed"
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -166,8 +185,40 @@ wait_ready() {
 # install_posture <namespace> <example file under examples/>
 install_posture() {
   local ns=$1 example=$2
-  "$HELM" install posture "$ROOT/charts/posture" -n "$ns" \
-    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" --wait >/dev/null
+  quiet "$HELM" install posture "$ROOT/charts/posture" -n "$ns" \
+    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" --wait
+  info "posture installed in ${ns} (examples/${example})"
+}
+
+# restart_workloads: replaces every pod in the scenario's namespaces and waits until only the
+# new ones are left. Used under Istio ambient after posture is installed: ztunnel pools the
+# HBONE connections the baseline checks opened and sends later requests over them, while
+# NetworkPolicy only judges new connections, so without this every in-cluster deny would still
+# connect. New pods have new addresses and no pooled connections. Restarting ztunnel itself
+# would also drop the pool, but it briefly breaks all meshed traffic, which a deny check would
+# count as a pass.
+restart_workloads() {
+  local ns d
+  for ns in "${NAMESPACES[@]}"; do
+    quiet "$KUBECTL" -n "$ns" rollout restart deployment
+  done
+  for ns in "${NAMESPACES[@]}"; do
+    for d in $("$KUBECTL" -n "$ns" get deployment -o name); do
+      quiet "$KUBECTL" -n "$ns" rollout status "$d" --timeout=180s
+    done
+  done
+  # kubectl exec deploy/<name> may pick a pod that's still terminating; wait until they're gone.
+  local _attempt terminating
+  for _attempt in $(seq 1 30); do
+    terminating=""
+    for ns in "${NAMESPACES[@]}"; do
+      terminating+=$("$KUBECTL" -n "$ns" get pods -o jsonpath='{.items[*].metadata.deletionTimestamp}')
+    done
+    [[ -z $terminating ]] && break
+    sleep 2
+  done
+  [[ -z $terminating ]] || die "old pods are still terminating after the restart"
+  info "workloads restarted (drops connections ztunnel pooled during the baseline)"
 }
 
 cleanup_namespaces() {
@@ -263,17 +314,34 @@ run_scenario() {
   checks
   run_checks baseline
   install
+  if [[ $MESH == istio ]]; then restart_workloads; fi
   run_checks policy
   if declare -F extra >/dev/null; then extra; fi
-  if [[ $FAILED -gt $before ]]; then dump_state; fi
+  if [[ $FAILED -gt $before ]]; then
+    dump_state
+    if [[ ${E2E_KEEP:-0} == 1 ]]; then
+      # Keep this scenario's namespaces to inspect; later scenarios may reuse their names, so stop.
+      KEPT_SCENARIO=$name
+      info "keeping namespaces ${NAMESPACES[*]} (E2E_KEEP=1); skipping the remaining scenarios"
+      return 0
+    fi
+  fi
   cleanup_namespaces
 }
 
+# shellcheck disable=SC2034 # read by run.sh
+KEPT_SCENARIO=""
+
+# dump_state: a short overview after a failed scenario. For details, rerun with E2E_KEEP=1 and
+# inspect the namespaces it keeps (kubectl get networkpolicies -o yaml, and so on).
 dump_state() {
   local ns
   for ns in "${NAMESPACES[@]}"; do
     printf '\n--- namespace %s\n' "$ns"
-    "$KUBECTL" -n "$ns" get pods -o wide || true
-    "$KUBECTL" -n "$ns" get networkpolicies -o yaml || true
+    "$KUBECTL" -n "$ns" get pods -o wide 2>&1 || true
+    "$KUBECTL" -n "$ns" get networkpolicies 2>&1 || true
   done
+  if [[ ${E2E_KEEP:-0} != 1 ]]; then
+    printf '\n(rerun with E2E_KEEP=1 E2E_ARGS=<scenario> to keep these namespaces for inspection)\n'
+  fi
 }

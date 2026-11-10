@@ -64,6 +64,7 @@ if [[ ${#scenarios[@]} -eq 0 ]]; then
 fi
 for s in "${scenarios[@]}"; do
   run_scenario "$s"
+  if [[ -n $KEPT_SCENARIO ]]; then break; fi
 done
 
 summary
