@@ -98,24 +98,23 @@ install_cni() {
 #   - No waypoints and no egress gateway are needed: posture is L4 only in Phase 1.
 #
 # A possible outline (not verified, adjust to your setup):
-#   "$HELM" repo add istio https://istio-release.storage.googleapis.com/charts
-#   "$HELM" install istio-base istio/base     -n istio-system --create-namespace --version "$ISTIO_VERSION" --wait
-#   "$HELM" install istiod     istio/istiod   -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --wait
-#   "$HELM" install istio-cni  istio/cni      -n istio-system --version "$ISTIO_VERSION" --set profile=ambient <k3s CNI dirs> --wait
-#   "$HELM" install ztunnel    istio/ztunnel  -n istio-system --version "$ISTIO_VERSION" --wait
-#   "$KUBECTL" -n istio-system rollout status daemonset/istio-cni-node --timeout=300s
-#   "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s
+
 install_istio() {
   log "installing Istio ${ISTIO_VERSION} (ambient)"
-  # TODO(istio): replace this line with the Helm installation described above.
-  die "install_istio is not implemented yet: see test/e2e/lib.sh"
+  "$HELM" repo add istio https://istio-release.storage.googleapis.com/charts
+  "$HELM" install istio-base istio/base     -n istio-system --create-namespace --version "$ISTIO_VERSION" --wait
+  "$HELM" install istiod     istio/istiod   -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --wait
+  "$HELM" install istio-cni  istio/cni      -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --set global.platform=k3s --wait
+  "$HELM" install ztunnel    istio/ztunnel  -n istio-system --version "$ISTIO_VERSION" --wait
+  "$KUBECTL" -n istio-system rollout status daemonset/istio-cni-node --timeout=300s
+  "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s
 }
 
 # ---------------------------------------------------------------------------------------------
 # The external host: a container on the k3d Docker network, outside the cluster, on an address
 # inside the private ranges (172.16.0.0/12), so the postgres/sso presets match it for real.
 
-EXT_IP=""
+EXT_IP="172.16.100.100"
 
 start_external() {
   log "starting the external host"
