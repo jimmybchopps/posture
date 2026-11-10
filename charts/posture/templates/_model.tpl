@@ -8,6 +8,7 @@ Shape:
 
   mesh, namespace, trustDomain, allowSameNamespace
   networkPolicy: { ingress, egress }      # which directions get NetworkPolicies
+  authorization: { enabled }              # whether the mesh's authorization policies render
   fixed:                                  # fixed objects; a key is absent when not wanted
     denyIngress:   { name, rule }         # deny-all-ingress
     denyEgress:    { name, rule }         # deny-all-egress
@@ -319,6 +320,7 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
   "namespace" .Release.Namespace
   "trustDomain" $v.trustDomain
   "networkPolicy" (dict "ingress" $v.networkPolicy.ingress "egress" $v.networkPolicy.egress)
+  "authorization" (dict "enabled" $v.authorization.enabled)
   "allowSameNamespace" $v.allowSameNamespace
   "fixed" $fixed
   "rules" $acc.rules) -}}

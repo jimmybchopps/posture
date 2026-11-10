@@ -46,6 +46,9 @@ export HELM_DATA_HOME   := $(HELM_HOME)/data
 
 UNITTEST_PLUGIN := $(HELM_PLUGINS)/helm-unittest
 UNITTEST_VERSION := $(if $(filter 3.14.%,$(HELM_VERSION)),$(HELM_UNITTEST_LEGACY_VERSION),$(HELM_UNITTEST_VERSION))
+# helm-unittest only reads tests/*_test.yaml by default; the suites are grouped by output in
+# subfolders (tests/networkpolicy/, tests/istio/), so name both levels.
+UNITTEST_FILES := -f 'tests/*_test.yaml' -f 'tests/*/*_test.yaml'
 
 .PHONY: help tools tools-e2e lint unittest unittest-update validate test test-all-helm e2e clean
 
@@ -98,11 +101,11 @@ lint: $(HELM)
 
 unittest: $(UNITTEST_PLUGIN)
 	$(HELM) dependency update --skip-refresh $(PROBE) >/dev/null
-	$(HELM) unittest $(CHART) $(PROBE)
+	$(HELM) unittest $(UNITTEST_FILES) $(CHART) $(PROBE)
 
 # Regenerate the example snapshots after an intended change; review the diff before committing.
 unittest-update: $(UNITTEST_PLUGIN)
-	$(HELM) unittest -u $(CHART)
+	$(HELM) unittest -u $(UNITTEST_FILES) $(CHART)
 
 validate: $(HELM) $(KUBECONFORM)
 	@set -e; for f in $(EXAMPLES); do \

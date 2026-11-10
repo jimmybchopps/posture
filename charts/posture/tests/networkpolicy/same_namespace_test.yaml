@@ -19,8 +19,8 @@ tests:
     set:
       mesh: istio
     asserts:
-      - notExists: { path: spec.ingress[0].ports }
-      - notExists: { path: spec.egress[0].ports }
+      - notExists: { path: 'spec.ingress[0].ports' }
+      - notExists: { path: 'spec.egress[0].ports' }
 
   - it: allowSameNamespace false renders nothing
     set:

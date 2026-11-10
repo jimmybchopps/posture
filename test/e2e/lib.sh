@@ -31,8 +31,10 @@ record() { # record <PASS|FAIL> <message>
   fi
 }
 
+SKIPPED=()
+
 summary() {
-  log "summary: ${PASSED} passed, ${FAILED} failed"
+  log "summary: ${PASSED} passed, ${FAILED} failed${SKIPPED[*]:+, scenarios skipped for this mesh: ${SKIPPED[*]}}"
   local f
   for f in "${FAILURES[@]}"; do printf '  FAIL %s\n' "$f"; done
   [[ $FAILED -eq 0 ]]
@@ -130,12 +132,24 @@ namespace() { # namespace <name>: created fresh; in the ambient mesh when MESH=i
 }
 
 # workload <namespace> <name> <port>...
-# A Deployment labeled app.kubernetes.io/name=<name>, with a server container (agnhost porter,
-# HTTP on every port, readiness probe on the first) and a client container (curl), plus a
-# Service <name>.<namespace> on the same ports.
+# A Deployment whose pods are labeled app.kubernetes.io/name=<name> and run as the
+# ServiceAccount <name>, with a server container (agnhost porter, HTTP on every port, readiness
+# probe on the first) and a client container (curl), plus a Service <name>.<namespace> on the
+# same ports.
+#
+# For an impostor, override with environment variables:
+#   LABEL=<name>  pods carry app.kubernetes.io/name=<LABEL> instead; no Service is created
+#                 (it would select the real workload's pods too)
+#   SA=<name>     pods run as this ServiceAccount instead
+# e.g. LABEL=web SA=impostor workload apps fake-web 8080
+#
+# The Deployment selects its pods by e2e.posture.dev/deployment=<name>, not by the name label,
+# so an impostor's pods never count as the real workload's (kubectl exec deploy/<name> stays
+# on the right pod).
 workload() {
   local ns=$1 name=$2
   shift 2
+  local label=${LABEL:-$name} sa=${SA:-$name}
   local env="" svc_ports="" port
   for port in "$@"; do
     env+="
@@ -143,16 +157,32 @@ workload() {
     svc_ports+="
     - { name: p${port}, port: ${port}, targetPort: ${port} }"
   done
+  local service=""
+  if [[ -z ${LABEL:-} ]]; then
+    service="---
+apiVersion: v1
+kind: Service
+metadata: { name: ${name}, namespace: ${ns} }
+spec:
+  selector: { app.kubernetes.io/name: ${name} }
+  ports: ${svc_ports}"
+  fi
   "$KUBECTL" apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: ${sa}, namespace: ${ns} }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: ${name}, namespace: ${ns} }
 spec:
   replicas: 1
-  selector: { matchLabels: { app.kubernetes.io/name: ${name} } }
+  selector: { matchLabels: { e2e.posture.dev/deployment: ${name} } }
   template:
-    metadata: { labels: { app.kubernetes.io/name: ${name} } }
+    metadata:
+      labels: { app.kubernetes.io/name: ${label}, e2e.posture.dev/deployment: ${name} }
     spec:
+      serviceAccountName: ${sa}
       terminationGracePeriodSeconds: 1
       containers:
         - name: server
@@ -165,13 +195,7 @@ spec:
         - name: client
           image: ${CURL_IMAGE}
           command: [sleep, infinity]
----
-apiVersion: v1
-kind: Service
-metadata: { name: ${name}, namespace: ${ns} }
-spec:
-  selector: { app.kubernetes.io/name: ${name} }
-  ports: ${svc_ports}
+${service}
 EOF
 }
 
@@ -182,12 +206,14 @@ wait_ready() {
   done
 }
 
-# install_posture <namespace> <example file under examples/>
+# install_posture <namespace> <example file under examples/> [helm args...]
+# Extra arguments go to helm install after the example, e.g. --set networkPolicy.ingress=false.
 install_posture() {
   local ns=$1 example=$2
+  shift 2
   quiet "$HELM" install posture "$ROOT/charts/posture" -n "$ns" \
-    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" --wait
-  info "posture installed in ${ns} (examples/${example})"
+    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" "$@" --wait
+  info "posture installed in ${ns} (examples/${example}${*:+ $*})"
 }
 
 # restart_workloads: replaces every pod in the scenario's namespaces and waits until only the
@@ -305,8 +331,15 @@ run_scenario() {
   local name=$1 before=$FAILED
   log "scenario ${name} (mesh: ${MESH})"
   unset -f setup install checks extra
+  unset SCENARIO_MESHES
   # shellcheck source=/dev/null
   source "${HERE}/scenarios/${name}.sh"
+  # A scenario may set SCENARIO_MESHES=(istio ...) to run only under those meshes.
+  if [[ -n ${SCENARIO_MESHES+x} && " ${SCENARIO_MESHES[*]} " != *" ${MESH} "* ]]; then
+    info "skipped: needs MESH=${SCENARIO_MESHES[*]}"
+    SKIPPED+=("$name")
+    return 0
+  fi
   ALLOWS=()
   DENIES=()
   setup

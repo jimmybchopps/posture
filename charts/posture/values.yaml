@@ -29,6 +29,21 @@ networkPolicy:
   ingress: true
   egress: true
 
+# -- The mesh's authorization policies, generated from the ingress rules (egress stays
+#    NetworkPolicy-only: authorization is enforced at the destination). Used when mesh isn't
+#    none; ignored with mesh: none.
+#    istio: AuthorizationPolicies enforced by ztunnel, which sees the original destination
+#           port and the client's mesh identity. Between meshed pods this is what limits ports:
+#           NetworkPolicies only see HBONE on 15008. A namespace-wide deny-all-ingress, plus
+#           allow-same-namespace and one ALLOW per ingress rule, named like the NetworkPolicy
+#           from the same rule. Peers with a serviceAccount are matched by identity
+#           (<trustDomain>/ns/<namespace>/sa/<serviceAccount>); without one, by namespace.
+#           Identity rules only admit meshed clients. TCP only: UDP and SCTP ports are left to
+#           the NetworkPolicies, since ztunnel doesn't carry them.
+#    false renders no authorization policies at all. Troubleshooting only.
+authorization:
+  enabled: true
+
 # -- Allow all traffic between pods in this namespace, on every port.
 #    Renders allow-same-namespace.
 allowSameNamespace: true
@@ -39,7 +54,8 @@ allowDNS: true
 
 # -- Sources: where ingress traffic can come from, referenced by name under
 #    ingress.<target>.sources. Predefined: monitoring (namespace prometheus, workload
-#    prometheus) and ingress-gateway (namespace gateway, every pod). Entries here override
+#    prometheus, serviceAccount prometheus) and ingress-gateway (namespace gateway, every
+#    pod). Entries here override
 #    a predefined source field by field, or define a new one.
 #    An entry is either inside the cluster (namespace, plus workload with optional selector,
 #    or a raw podSelector; optional serviceAccount) or outside it (cidrs), never both.

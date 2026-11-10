@@ -8,6 +8,35 @@ WARNING: NetworkPolicy {{ $direction }} is DISABLED (networkPolicy.{{ $direction
   Troubleshooting only; set it back to true when you're done.
 {{- end }}
 {{- end }}
+{{- $authz := and (eq $model.mesh "istio") $model.authorization.enabled -}}
+{{- if and (eq $model.mesh "istio") (not $model.authorization.enabled) }}
+
+WARNING: authorization is DISABLED (authorization.enabled: false).
+  No AuthorizationPolicy is rendered. Between meshed pods the NetworkPolicies only see HBONE on
+  15008, so port limits aren't enforced, and no rule checks a client's mesh identity.
+  Troubleshooting only; set it back to true when you're done.
+{{- end }}
+{{- if $authz }}
+{{- $byNamespace := list -}}
+{{- range $model.rules -}}
+  {{- if and (eq .direction "ingress") .peer.inCluster .peer.labels (not .peer.serviceAccount) -}}
+    {{- $byNamespace = append $byNamespace .rule -}}
+  {{- end -}}
+{{- end -}}
+{{- if $byNamespace }}
+
+WARNING: these ingress rules name a workload without a serviceAccount. Their authorization
+  policies can't check the workload, only the client's namespace (or, with namespace: any, that
+  it has any mesh identity); the workload label is checked by the NetworkPolicy alone. Set
+  serviceAccount to check the workload's identity:
+{{- range $byNamespace }}
+  - {{ . }}
+{{- end }}
+{{- end }}
+
+Authorization (Istio ambient): the authorization policies admit in-cluster clients by mesh
+identity, so a client in a namespace outside the mesh is refused even where a rule names it.
+{{- end }}
 {{- $untrusted := list -}}
 {{- range $model.rules -}}
   {{- if and .peer.inCluster (eq .peer.namespace.scope "all") .peer.labels (not .peer.serviceAccount) -}}
@@ -27,5 +56,5 @@ WARNING: these rules match a workload label in every namespace (namespace: any) 
 
 See which objects it created, and the rule each one came from:
 
-  kubectl get networkpolicies -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
+  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
     -o custom-columns='NAME:.metadata.name,RULE:.metadata.annotations.posture\.dev/rule'

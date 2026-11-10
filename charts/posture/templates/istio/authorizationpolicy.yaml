@@ -1,0 +1,41 @@
+{{- /*
+Istio ambient AuthorizationPolicies, when mesh: istio and authorization.enabled, whatever
+networkPolicy says (the two layers are independent):
+  deny-all-ingress      allow-nothing for every workload in the namespace
+  allow-same-namespace  every port, from this namespace (allowSameNamespace)
+  one ALLOW per ingress model rule, named like the NetworkPolicy from the same rule
+Egress rules render nothing: authorization is enforced at the destination.
+*/ -}}
+{{- $model := include "posture.model" . | fromJson -}}
+{{- if and (eq $model.mesh "istio") $model.authorization.enabled -}}
+{{- with $model.fixed.denyIngress }}
+---
+{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" "authorization.enabled" "spec" (dict)) }}
+{{- end -}}
+{{- with $model.fixed.sameNamespace }}
+---
+{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "spec" (dict
+  "action" "ALLOW"
+  "rules" (list (dict "from" (list (dict "source" (dict "namespaces" (list $model.namespace)))))))) }}
+{{- end -}}
+{{- range $rule := $model.rules -}}
+{{- if eq $rule.direction "ingress" -}}
+  {{- $portsOut := dict -}}
+  {{- $_ := include "posture.istio.ports" (dict "rule" $rule "out" $portsOut) -}}
+  {{- if $portsOut.ports -}}
+    {{- $fromOut := dict -}}
+    {{- $_ := include "posture.istio.from" (dict "model" $model "peer" $rule.peer "out" $fromOut) -}}
+    {{- $spec := dict
+      "action" "ALLOW"
+      "rules" (list (dict
+        "from" $fromOut.from
+        "to" (list (dict "operation" (dict "ports" $portsOut.ports))))) -}}
+    {{- if $rule.target.labels -}}
+      {{- $_ := set $spec "selector" (dict "matchLabels" $rule.target.labels) -}}
+    {{- end }}
+---
+{{ include "posture.istio.object" (dict "root" $ "name" $rule.name "rule" $rule.rule "spec" $spec) }}
+  {{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

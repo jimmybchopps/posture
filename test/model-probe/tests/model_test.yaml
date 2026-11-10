@@ -11,6 +11,7 @@ tests:
       - equal: { path: namespace, value: team }
       - equal: { path: trustDomain, value: cluster.local }
       - equal: { path: networkPolicy, value: { ingress: true, egress: true } }
+      - equal: { path: authorization, value: { enabled: true } }
       - equal: { path: allowSameNamespace, value: true }
 
   - it: carries overridden toggles
@@ -19,12 +20,14 @@ tests:
         mesh: istio
         trustDomain: example.org
         networkPolicy: { ingress: false }
+        authorization: { enabled: false }
         allowSameNamespace: false
     documentSelector: { path: name, value: model }
     asserts:
       - equal: { path: mesh, value: istio }
       - equal: { path: trustDomain, value: example.org }
       - equal: { path: networkPolicy, value: { ingress: false, egress: true } }
+      - equal: { path: authorization, value: { enabled: false } }
       - equal: { path: allowSameNamespace, value: false }
 
   - it: with defaults, the only rule is allowDNS

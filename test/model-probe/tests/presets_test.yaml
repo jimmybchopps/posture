@@ -3,13 +3,23 @@ templates:
   - templates/model.yaml
 tests:
   # Defaults
-  - it: monitoring defaults to workload prometheus in namespace prometheus
+  - it: monitoring defaults to workload prometheus in namespace prometheus, service account prometheus
     set:
       posture.ingress.grafana.sources.monitoring: [3000]
     documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
     asserts:
       - equal: { path: peer.labels, value: { app.kubernetes.io/name: prometheus } }
       - equal: { path: peer.namespace, value: { scope: named, name: prometheus } }
+      - equal: { path: peer.serviceAccount, value: prometheus }
+
+  - it: monitoring's serviceAccount can be overridden
+    set:
+      posture.sources.monitoring: { serviceAccount: prometheus-k8s }
+      posture.ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: peer.serviceAccount, value: prometheus-k8s }
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: prometheus } }
 
   - it: ingress-gateway defaults to every pod in namespace gateway
     set:

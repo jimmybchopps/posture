@@ -3,6 +3,7 @@
 suite: examples
 templates:
   - templates/networkpolicy/*.yaml
+  - templates/istio/*.yaml
 release:
   name: posture
   namespace: example
@@ -25,5 +26,9 @@ tests:
       - matchSnapshot: {}
   - it: istio
     values: [../../../examples/istio.yaml]
+    asserts:
+      - matchSnapshot: {}
+  - it: identity
+    values: [../../../examples/identity.yaml]
     asserts:
       - matchSnapshot: {}
