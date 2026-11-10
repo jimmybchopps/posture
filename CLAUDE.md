@@ -29,7 +29,9 @@ The build order is in `docs/PLAN.md`. Work through it phase by phase.
 - **Never silently weaker.** If the selected mesh can't express something the values ask for,
   call `fail` with a message naming the rule and the reason. Never drop or loosen a rule.
 - **Values decide, not the cluster.** No `lookup`, no `.Capabilities` checks to choose what to
-  render. `helm template` must produce exactly what `helm install` applies.
+  render. `helm template` must produce exactly what `helm install` applies. The one input from
+  outside the values is the render date, used only by `exceptions.*.policies.*.expires`, and
+  it can only remove an exception, never add one.
 - **Stable, descriptive names.** Every object is named `allow-<direction>-from-<source>-to-<destination>`
   from map keys (see "Naming"), so names say what they allow and adding or removing one rule
   never renames another object.
@@ -54,6 +56,18 @@ mtls:                           # used when mesh isn't none
     grafana: [9090]             # STRICT only; or { selector, ports }; "any" isn't accepted
 allowSameNamespace: true        # all traffic between pods in this namespace
 allowDNS: true                  # egress from every pod to the "dns" destination
+
+policyExceptions: { enabled: true } # render posture-exceptions (even empty); false on clusters
+                                    # without the PolicyExceptions CRD (then exceptions fail)
+exceptions:                     # admission-policy exceptions; independent of mesh
+  prometheus:                   # workload in this namespace, matched by label
+    selector: name              # optional
+    policies:
+      disallow-host-path:       # policy name
+        kind: ValidatingAdmissionPolicy   # or MutatingAdmissionPolicy
+        reason: "node exporter reads /proc"   # optional
+        expires: 2027-03-31     # optional; left out once past (applied at render)
+        enabled: true           # optional, default true
 
 # Define first: overrides of predefined sources and destinations, plus custom ones.
 sources:
@@ -337,7 +351,7 @@ Fixed objects use the same style:
 | Istio allow-nothing policy | `deny-all-ingress` (AuthorizationPolicy) |
 | mTLS | `mtls-<mode>` for the namespace; `allow-plaintext-to-<workload>` per exclusion (PeerAuthentication and AuthorizationPolicy) |
 | Plaintext under PERMISSIVE | `allow-plaintext-to-all` (AuthorizationPolicy) |
-| exceptions | `posture-exceptions` |
+| exceptions | `posture-exceptions` (PolicyExceptions, `posture.dev/v1alpha1`) |
 
 Rules:
 
@@ -367,9 +381,11 @@ charts/posture/
     istio/                authorizationpolicy (phase 2), peerauthentication (phase 3),
                           _authorization.tpl (object, peer and port helpers)
     linkerd/  cilium/     phase 6
-    exceptions/           admission-policy exceptions object             (phase 4)
+    exceptions/           the PolicyExceptions object                    (phase 4)
     NOTES.txt
   tests/                  helm-unittest suites, one folder per output
+crds-reference/           the PolicyExceptions CRD posture's output relies on (phase 4): the
+                          contract the policy chart installs; never installed by posture
 examples/                 complete values files that double as e2e fixtures
 test/e2e/                 k3d scripts: allowed traffic connects, denied traffic doesn't
 test/model-probe/         test-only chart that prints the model for helm-unittest
@@ -407,7 +423,7 @@ NetworkPolicy.
 | 0 | Repo setup, tooling, CI | done |
 | 1 | Network policies | done (see docs/PLAN.md 1c, "Accepted failures") |
 | 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
-| 3 | mTLS with per-port exclusions | implemented and unit-tested; e2e scenarios written, first real run pending |
+| 3 | mTLS with per-port exclusions | done |
 | 4 | Policy exceptions | not started |
 | 5 | Boundary integration and egress hostnames (Istio) | not started |
 | 6 | Linkerd and Cilium renderers | not started |
