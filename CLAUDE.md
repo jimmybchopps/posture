@@ -6,7 +6,7 @@ works with Istio (ambient mode, L4 only), Linkerd, Cilium, or no mesh, from the 
 
 It is installed once per namespace, alongside whatever charts run there. Cluster-wide pieces
 (ingress and egress gateways, approved egress hostnames, mesh-wide resources) belong to a
-separate chart, `cluster-boundary`, which this chart never references.
+separate chart, `boundary`, which this chart never references.
 
 The build order is in `docs/PLAN.md`. Work through it phase by phase.
 
@@ -343,7 +343,7 @@ charts/posture/
     validate.yaml         builds the model on every render so bad values always fail
     istio/                authorizationpolicy (phase 2), _authorization.tpl (peer and port
                           helpers); peerauthentication                   (phase 3)
-    linkerd/  cilium/     phase 5
+    linkerd/  cilium/     phase 6
     exceptions/           admission-policy exceptions object             (phase 4)
     NOTES.txt
   tests/                  helm-unittest suites, one folder per output
@@ -383,7 +383,8 @@ NetworkPolicy.
 |---|---|---|
 | 0 | Repo setup, tooling, CI | done |
 | 1 | Network policies | done (see docs/PLAN.md 1c, "Accepted failures") |
-| 2 | Authorization policies (Istio first) | implemented and unit-tested; e2e scenarios written, first real run pending (one egress wrong-port deny is a known failure) |
+| 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | not started |
 | 4 | Policy exceptions | not started |
-| 5 | Linkerd and Cilium renderers | not started |
+| 5 | Boundary integration and egress hostnames (Istio) | not started |
+| 6 | Linkerd and Cilium renderers | not started |

@@ -1,7 +1,8 @@
 # posture: development plan
 
 Build order: network policies, then authorization policies generated from the same rules, then
-mTLS, then policy exceptions, then the Linkerd and Cilium renderers. Istio ambient (L4) is the
+mTLS, then policy exceptions, then integration with the `boundary` chart and egress to
+hostnames (Istio), then the Linkerd and Cilium renderers. Istio ambient (L4) is the
 first mesh for phases 2 and 3. The values contract is in `CLAUDE.md`; this file says what to
 build and how to know it's done.
 
@@ -29,7 +30,7 @@ Decisions made in phase 0:
   which updates `tests/defaults_test.yaml` to expect them.
 - `values.yaml` and the schema accept only keys that are implemented. Each phase adds its own
   keys (`authorization`, `mtls`, `exceptions`, `networkPolicy`), and the `mesh` enum grows to
-  `linkerd` and `cilium` in phase 5, so a setting is never accepted and silently ignored.
+  `linkerd` and `cilium` in phase 6, so a setting is never accepted and silently ignored.
 - Tool versions are pinned in the `Makefile` only (one source of truth); `make tools` installs
   them into `.bin/`, with a separate Helm home per Helm version. CI tests Helm 3.14.4, the
   latest 3.x, and the latest 4.x. Helm 3.14 can't load helm-unittest 1.1.0 or later, so the
@@ -171,11 +172,11 @@ are left failing, with no changes to the harness or the chart, as phase 2's targ
 the `mesh: istio` e2e job in CI is expected to fail on exactly these three.
 
 Phase 2 update: the first two are ingress port limits, which the AuthorizationPolicies now
-enforce, so they're expected to pass (pending the first real phase 2 e2e run). The third is an
+enforce, and pass in the phase 2 e2e run. The third is an
 *egress* port limit to a namespace without a posture release: authorization is enforced only
 at the destination, and `intruder` has none, so nothing enforces that port under ambient. It
-is accepted as a known failure past phase 2 (decided with the maintainer), to revisit later
-(for example with egress waypoints). In general, under ambient, egress port limits to meshed
+is accepted as a known failure past phase 2 (decided with the maintainer), to be resolved in
+phase 5 (boundary integration). In general, under ambient, egress port limits to meshed
 in-cluster peers hold only where the destination's own authorization enforces them.
 
 ---
@@ -208,11 +209,11 @@ NetworkPolicy-only). Enforced by ztunnel at L4.
 - [x] `authorization.enabled` (default true; used only when `mesh` isn't `none`, ignored with `none`).
 - [x] Unit tests for every row and the `fail` cases (`tests/istio/authorizationpolicy_test.yaml`,
       plus NOTES, schema, and model-probe cases).
-- [ ] e2e (scenarios written: `identity`, `identity-authz-only`, `identity-netpol-only`; first
-      real run pending): a pod with the right labels but the wrong service account is refused
+- [x] e2e (`identity`, `identity-authz-only`, `identity-netpol-only`): a pod with the right labels but the wrong service account is refused
       by the mesh even though the NetworkPolicy lets it through; test each layer with the other
       relaxed. The two ingress wrong-port denies accepted as failing in phase 1 (see "Accepted
-      failures" under 1c) must pass under `MESH=istio`; the egress one is a known failure.
+      failures" under 1c) must pass under `MESH=istio`; the egress one is a known failure
+      (phase 5). Passed: every check under `MESH=none` and `MESH=istio` except that one.
 
 **Done when** e2e shows NetworkPolicy and AuthorizationPolicy each block traffic on their own.
 
@@ -303,7 +304,35 @@ exceptions:
 
 ---
 
-## Phase 5: Linkerd and Cilium
+## Phase 5: boundary integration and egress hostnames (Istio)
+
+`boundary` is a separate chart for the cluster-wide pieces: ingress and egress gateways,
+approved external hostnames, and mesh-wide resources. posture never references or depends on
+it and stays namespace-scoped; the two meet only in e2e, where both are installed. Istio only
+for now; other meshes follow in phase 6.
+
+- [ ] The e2e harness installs `boundary` alongside Istio.
+- [ ] Egress to hostnames under `mesh: istio`: a values shape for limiting a workload's egress
+      to named hosts approved by `boundary`, rendered with the existing `egress-gateway`
+      destination (HBONE 15008 to the egress waypoint) plus whatever per-namespace objects
+      Istio needs, all in the release namespace. Any other mesh `fail`s, naming the rule.
+- [ ] Resolve the remaining accepted failure (`deny prometheus/prometheus -> x.intruder:8081`,
+      an egress port limit into a namespace without posture; see "Accepted failures" under 1c).
+- [ ] Unit tests (schema, model, renderer, the non-istio `fail`) and e2e: an approved host
+      connects; an unapproved host, and a direct path that skips the gateway, don't.
+
+**Done when** the integration e2e passes under `MESH=istio` with no accepted failures.
+
+Open questions, settled at the start of the phase:
+
+- Where `boundary` lives and how the e2e harness installs it.
+- The values shape for egress to hostnames.
+- Which objects belong to posture (per namespace) and which to `boundary` (cluster-wide).
+- How the remaining accepted failure is resolved.
+
+---
+
+## Phase 6: Linkerd and Cilium
 
 - [ ] Linkerd: a `Server` per target port; `AuthorizationPolicy` with `MeshTLSAuthentication`
       (identity `<sa>.<ns>.serviceaccount.identity.linkerd.<trustDomain>`) or
@@ -327,7 +356,7 @@ exceptions:
 1. **Exceptions format (phase 4).** Deferred: agree on the shape with the admission policies'
    CEL, and on how a policy treats a missing parameter object.
 
-2. **An escape hatch for custom resources (deferred, after phase 5).** The generated rules
+2. **An escape hatch for custom resources (deferred, after phase 6).** The generated rules
    will eventually meet a case they can't express (an L7 rule on a waypoint, an unusual
    Cilium selector, a vendor-specific policy). Users need a way to add their own objects
    without forking the chart, but a fully open "any manifest" field would let this chart
