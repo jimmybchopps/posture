@@ -46,6 +46,8 @@ trustDomain: cluster.local      # used to build mesh identities
 
 networkPolicy: { ingress: true, egress: true } # false for a direction = no NetworkPolicies
                                                # for it at all (troubleshooting only)
+authorization: { enabled: true } # mesh authorization policies from the ingress rules; used
+                                 # when mesh isn't none; false = none (troubleshooting only)
 allowSameNamespace: true        # all traffic between pods in this namespace
 allowDNS: true                  # egress from every pod to the "dns" destination
 
@@ -205,7 +207,7 @@ Cilium doesn't match pods with it at all.
 
 | Source | Default |
 |---|---|
-| `monitoring` | namespace `prometheus`, workload `prometheus` |
+| `monitoring` | namespace `prometheus`, workload `prometheus`, serviceAccount `prometheus` |
 | `ingress-gateway` | namespace `gateway`, every pod |
 
 A destination carries its own ports; a source reference carries the ports on the target,
@@ -252,6 +254,35 @@ this destination.
     NetworkPolicy allows ingress from that address to every pod.
   - Authorization policies list only the user's ports. They are enforced after ztunnel
     unwraps HBONE, where the original destination port is visible.
+
+## Rendering rules (authorization, Istio ambient)
+
+Rendered when `mesh: istio` and `authorization.enabled`, independently of `networkPolicy`.
+Only `ingress` produces authorization policies: they're enforced at the destination, so
+`egress` stays NetworkPolicy-only (under ambient, an egress port limit to a meshed peer holds
+only where the destination's own authorization enforces it).
+
+- `deny-all-ingress`: an AuthorizationPolicy with an empty spec (allow-nothing) for the
+  namespace.
+- `allowSameNamespace`: `allow-same-namespace`, ALLOW from `namespaces: [<this namespace>]`,
+  every port.
+- One ALLOW per ingress rule, named like the NetworkPolicy from the same rule, with
+  `selector.matchLabels` from the target (none for `any`). Peers map to `from.source`:
+
+  | Peer | `source` |
+  |---|---|
+  | `serviceAccount`, namespace omitted or X | `principals: [<trustDomain>/ns/<ns>/sa/<sa>]` |
+  | `serviceAccount`, `namespace: any` | `principals: ["*/sa/<sa>"]` |
+  | workload without `serviceAccount`, namespace omitted or X | `namespaces: [<ns>]` (NOTES warning) |
+  | workload without `serviceAccount`, `namespace: any` | `principals: ["*"]` (NOTES warning) |
+  | `any` + namespace omitted or X | `namespaces: [<ns>]` |
+  | `any` + `namespace: any` | `principals: ["*"]` |
+  | `cidrs` | one entry per CIDR: `ipBlocks: [<cidr>]`, `notIpBlocks: <except>` |
+
+- Ports: `to.operation.ports`, TCP only (ztunnel carries no UDP or SCTP, which the
+  NetworkPolicy enforces on the real port), never 15008, ranges expanded port by port, at most
+  1024 per rule (more is a `fail`). A rule with no TCP ports renders no authorization policy.
+- Identity rules only admit meshed clients.
 
 ## Naming
 
@@ -310,7 +341,8 @@ charts/posture/
     networkpolicy/        default-deny, same-namespace, ambient-probes, rules (every model
                           rule, allowDNS included), _networkpolicy.tpl (peer and port helpers)
     validate.yaml         builds the model on every render so bad values always fail
-    istio/                authorizationpolicy, peerauthentication        (phases 2-3)
+    istio/                authorizationpolicy (phase 2), _authorization.tpl (peer and port
+                          helpers); peerauthentication                   (phase 3)
     linkerd/  cilium/     phase 5
     exceptions/           admission-policy exceptions object             (phase 4)
     NOTES.txt
@@ -350,8 +382,8 @@ NetworkPolicy.
 | Phase | Area | Status |
 |---|---|---|
 | 0 | Repo setup, tooling, CI | done |
-| 1 | Network policies | done (three wrong-port denies fail under `mesh: istio` until phase 2; see docs/PLAN.md 1c) |
-| 2 | Authorization policies (Istio first) | not started |
+| 1 | Network policies | done (see docs/PLAN.md 1c, "Accepted failures") |
+| 2 | Authorization policies (Istio first) | implemented and unit-tested; e2e scenarios written, first real run pending (one egress wrong-port deny is a known failure) |
 | 3 | mTLS with per-port exclusions | not started |
 | 4 | Policy exceptions | not started |
 | 5 | Linkerd and Cilium renderers | not started |

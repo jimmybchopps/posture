@@ -35,6 +35,16 @@
         }
       }
     },
+    "authorization": {
+      "description": "The mesh's authorization policies, generated from the ingress rules. Used when mesh isn't none; false renders none (troubleshooting only).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
     "allowSameNamespace": {
       "description": "Allow all traffic between pods in this namespace.",
       "type": "boolean"

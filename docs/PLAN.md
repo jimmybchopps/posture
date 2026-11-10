@@ -170,6 +170,14 @@ AuthorizationPolicies (ztunnel checks the original port after unwrapping HBONE).
 are left failing, with no changes to the harness or the chart, as phase 2's target. Until then
 the `mesh: istio` e2e job in CI is expected to fail on exactly these three.
 
+Phase 2 update: the first two are ingress port limits, which the AuthorizationPolicies now
+enforce, so they're expected to pass (pending the first real phase 2 e2e run). The third is an
+*egress* port limit to a namespace without a posture release: authorization is enforced only
+at the destination, and `intruder` has none, so nothing enforces that port under ambient. It
+is accepted as a known failure past phase 2 (decided with the maintainer), to revisit later
+(for example with egress waypoints). In general, under ambient, egress port limits to meshed
+in-cluster peers hold only where the destination's own authorization enforces them.
+
 ---
 
 ## Phase 2: authorization policies (Istio ambient first)
@@ -177,11 +185,11 @@ the `mesh: istio` e2e job in CI is expected to fail on exactly these three.
 Generated from `ingress` (authorization is enforced at the destination, so `egress` stays
 NetworkPolicy-only). Enforced by ztunnel at L4.
 
-- [ ] When `mesh: istio` and `authorization.enabled`: a namespace-wide allow-nothing
+- [x] When `mesh: istio` and `authorization.enabled`: a namespace-wide allow-nothing
       AuthorizationPolicy (empty spec) named `deny-all-ingress`.
-- [ ] `allowSameNamespace`: ALLOW from `namespaces: [<this namespace>]`, named
+- [x] `allowSameNamespace`: ALLOW from `namespaces: [<this namespace>]`, named
       `allow-same-namespace`.
-- [ ] One ALLOW policy per target and peer pair, with the same name as the NetworkPolicy from
+- [x] One ALLOW policy per target and peer pair, with the same name as the NetworkPolicy from
       that rule (no selector when the target is `any`). The peer maps to `from.source` as follows:
 
       | Peer | `from.source` |
@@ -196,14 +204,42 @@ NetworkPolicy-only). Enforced by ztunnel at L4.
 
       `to.operation.ports` from the rule's ports, never including 15008 (ztunnel enforces
       authorization on the original destination port, after unwrapping HBONE).
-- [ ] Presets as sources follow the same table (a preset can carry a `serviceAccount`).
-- [ ] `authorization.enabled` (default true when `mesh` isn't `none`).
-- [ ] Unit tests for every row and the `fail` cases. e2e: a pod with the right labels but the
-      wrong service account is refused by the mesh even though the NetworkPolicy lets it
-      through; test each layer with the other relaxed. The three wrong-port denies accepted as
-      failing in phase 1 (see "Accepted failures" under 1c) must pass under `MESH=istio`.
+- [x] Presets as sources follow the same table (a preset can carry a `serviceAccount`).
+- [x] `authorization.enabled` (default true; used only when `mesh` isn't `none`, ignored with `none`).
+- [x] Unit tests for every row and the `fail` cases (`tests/istio/authorizationpolicy_test.yaml`,
+      plus NOTES, schema, and model-probe cases).
+- [ ] e2e (scenarios written: `identity`, `identity-authz-only`, `identity-netpol-only`; first
+      real run pending): a pod with the right labels but the wrong service account is refused
+      by the mesh even though the NetworkPolicy lets it through; test each layer with the other
+      relaxed. The two ingress wrong-port denies accepted as failing in phase 1 (see "Accepted
+      failures" under 1c) must pass under `MESH=istio`; the egress one is a known failure.
 
 **Done when** e2e shows NetworkPolicy and AuthorizationPolicy each block traffic on their own.
+
+Decisions made in phase 2:
+
+- Only TCP ports go into AuthorizationPolicies. ztunnel carries TCP only, so UDP and SCTP
+  bypass it and the NetworkPolicy enforces them on their real port. Listing a UDP port number
+  would open that number for TCP too, so it's dropped; a rule with no TCP ports renders no
+  AuthorizationPolicy.
+- Port ranges are expanded port by port (`operation.ports` has no range form). A rule that
+  would list more than 1024 ports fails, naming the rule.
+- `cidrs` sources render one `from` entry per CIDR, so each `except` list (`notIpBlocks`) stays
+  bound to its own CIDR.
+- Identity rules (`principals`, `namespaces`) only admit meshed clients; a client in a namespace
+  outside the mesh is refused even where a rule names it. NOTES.txt says so.
+- The `monitoring` preset carries `serviceAccount: prometheus`, so it maps to an exact
+  principal; installs that run Prometheus under another account override it
+  (`sources.monitoring.serviceAccount`).
+- The fixed `deny-all-ingress` AuthorizationPolicy's `posture.dev/rule` is
+  `authorization.enabled`.
+- e2e workloads each run as their own ServiceAccount, named after the workload. Deployments
+  select their pods by `e2e.posture.dev/deployment`, so an impostor with copied labels never
+  counts as the real workload. Scenarios can declare `SCENARIO_MESHES` to run only under
+  some meshes.
+- `make unittest` now passes `-f 'tests/*_test.yaml' -f 'tests/*/*_test.yaml'`: helm-unittest
+  reads only `tests/*_test.yaml` by default, so the suites under `tests/networkpolicy/` had
+  never run (one didn't even parse). They run, and pass, now.
 
 ---
 

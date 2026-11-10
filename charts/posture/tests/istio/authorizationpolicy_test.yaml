@@ -1,0 +1,265 @@
+suite: istio authorization policies
+templates:
+  - templates/istio/authorizationpolicy.yaml
+release:
+  namespace: grafana
+set:
+  mesh: istio
+tests:
+  # When it renders
+  - it: renders nothing with mesh none
+    set:
+      mesh: none
+      ingress.grafana.from.renderer: { ports: [3000] }
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: renders nothing with authorization disabled
+    set:
+      authorization.enabled: false
+      ingress.grafana.from.renderer: { ports: [3000] }
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: still renders with both NetworkPolicy directions off (the layers are independent)
+    set:
+      networkPolicy: { ingress: false, egress: false }
+      ingress.grafana.from.renderer: { ports: [3000] }
+    asserts:
+      - hasDocuments: { count: 3 }
+
+  # Fixed policies
+  - it: renders deny-all-ingress (allow-nothing) and allow-same-namespace by default
+    asserts:
+      - hasDocuments: { count: 2 }
+      - isKind: { of: AuthorizationPolicy }
+      - isAPIVersion: { of: security.istio.io/v1 }
+      - equal: { path: metadata.name, value: deny-all-ingress }
+        documentIndex: 0
+      - equal: { path: metadata.namespace, value: grafana }
+        documentIndex: 0
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: authorization.enabled }
+        documentIndex: 0
+      - equal: { path: spec, value: {} }
+        documentIndex: 0
+      - equal: { path: metadata.name, value: allow-same-namespace }
+        documentIndex: 1
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: allowSameNamespace }
+        documentIndex: 1
+      - equal:
+          path: spec
+          value:
+            action: ALLOW
+            rules: [{ from: [{ source: { namespaces: [grafana] } }] }]
+        documentIndex: 1
+
+  - it: no allow-same-namespace when allowSameNamespace is false
+    set:
+      allowSameNamespace: false
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: deny-all-ingress }
+
+  - it: namePrefix applies to every policy
+    set:
+      namePrefix: team-a
+      ingress.grafana.from.renderer: { ports: [3000] }
+    asserts:
+      - equal: { path: metadata.name, value: team-a-deny-all-ingress }
+        documentIndex: 0
+      - equal: { path: metadata.name, value: team-a-allow-same-namespace }
+        documentIndex: 1
+      - equal: { path: metadata.name, value: team-a-allow-ingress-from-renderer-to-grafana }
+        documentIndex: 2
+
+  # One ALLOW per ingress rule, named like its NetworkPolicy
+  - it: a rule renders an ALLOW named like its NetworkPolicy, with the target's selector
+    set:
+      allowSameNamespace: false
+      ingress.grafana.from.keycloak: { namespace: keycloak, serviceAccount: keycloak, ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-keycloak-to-grafana }
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.grafana.from.keycloak }
+      - equal:
+          path: spec
+          value:
+            action: ALLOW
+            selector: { matchLabels: { app.kubernetes.io/name: grafana } }
+            rules:
+              - from: [{ source: { principals: [cluster.local/ns/keycloak/sa/keycloak] } }]
+                to: [{ operation: { ports: ["3000"] } }]
+
+  - it: the target's selector follows the rule's selector
+    set:
+      ingress.grafana: { selector: instance, from: { renderer: { ports: [3000] } } }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: spec.selector, value: { matchLabels: { app.kubernetes.io/instance: grafana } } }
+
+  - it: target any has no selector
+    set:
+      ingress.any.from.any: { namespace: tooling, ports: [8080] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-all-in-tooling-to-all }
+    asserts:
+      - notExists: { path: spec.selector }
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { namespaces: [tooling] } }] }
+
+  - it: egress rules and allowDNS render nothing
+    set:
+      allowSameNamespace: false
+      egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080] }
+      egress.grafana.destinations: [postgres]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: deny-all-ingress }
+
+  # Peers (docs/PLAN.md, phase 2 table)
+  - it: serviceAccount, namespace omitted -> principal in this namespace
+    set:
+      ingress.grafana.from.renderer: { serviceAccount: renderer, ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: [cluster.local/ns/grafana/sa/renderer] } }] }
+
+  - it: serviceAccount, namespace any -> principal suffix match on the service account
+    set:
+      ingress.grafana.from.prometheus: { namespace: any, serviceAccount: prometheus, ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-prometheus-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: ["*/sa/prometheus"] } }] }
+
+  - it: the principal uses trustDomain
+    set:
+      trustDomain: example.org
+      ingress.grafana.from.keycloak: { namespace: keycloak, serviceAccount: keycloak, ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-keycloak-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: [example.org/ns/keycloak/sa/keycloak] } }] }
+
+  - it: workload without serviceAccount, namespace X -> the namespace
+    set:
+      ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-keycloak-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { namespaces: [keycloak] } }] }
+
+  - it: workload without serviceAccount, namespace omitted -> this namespace
+    set:
+      ingress.grafana.from.renderer: { ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { namespaces: [grafana] } }] }
+
+  - it: workload without serviceAccount, namespace any -> any mesh identity
+    set:
+      ingress.grafana.from.prometheus: { namespace: any, ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-prometheus-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: ["*"] } }] }
+
+  - it: any + namespace X -> the namespace
+    set:
+      ingress.grafana.from.any: { namespace: tooling, ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-all-in-tooling-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { namespaces: [tooling] } }] }
+
+  - it: any + namespace any -> any mesh identity
+    set:
+      ingress.grafana.from.any: { namespace: any, ports: [3000] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-all-namespaces-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: ["*"] } }] }
+
+  - it: cidrs -> one entry per CIDR, each with its own except list
+    set:
+      sources.office-vpn:
+        cidrs: [10.50.0.0/16, { cidr: 10.60.0.0/16, except: [10.60.1.0/24] }]
+      ingress.grafana.sources.office-vpn: [3000]
+    documentSelector: { path: metadata.name, value: allow-ingress-from-office-vpn-to-grafana }
+    asserts:
+      - equal:
+          path: 'spec.rules[0].from'
+          value:
+            - source: { ipBlocks: [10.50.0.0/16] }
+            - source: { ipBlocks: [10.60.0.0/16], notIpBlocks: [10.60.1.0/24] }
+
+  # Presets as sources
+  - it: monitoring -> the prometheus service account in namespace prometheus
+    set:
+      ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: metadata.name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: [cluster.local/ns/prometheus/sa/prometheus] } }] }
+
+  - it: monitoring with an overridden namespace keeps the service account
+    set:
+      sources.monitoring: { namespace: observability }
+      ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: metadata.name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: [cluster.local/ns/observability/sa/prometheus] } }] }
+
+  - it: ingress-gateway -> namespace gateway
+    set:
+      ingress.grafana.sources.ingress-gateway: [3000]
+    documentSelector: { path: metadata.name, value: allow-ingress-from-ingress-gateway-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { namespaces: [gateway] } }] }
+
+  - it: a custom source with a serviceAccount -> its principal
+    set:
+      sources.backup-agent: { namespace: backup, workload: velero, serviceAccount: velero }
+      ingress.grafana.sources.backup-agent: [3000]
+    documentSelector: { path: metadata.name, value: allow-ingress-from-backup-agent-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: [cluster.local/ns/backup/sa/velero] } }] }
+
+  # Ports
+  - it: lists every TCP port as a string, never 15008
+    set:
+      ingress.grafana.from.renderer: { ports: [3000, { port: 3001, protocol: TCP }, 15008] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].to', value: [{ operation: { ports: ["3000", "3001"] } }] }
+
+  - it: drops UDP and SCTP ports (ztunnel carries TCP only) and keeps the TCP ones
+    set:
+      ingress.grafana.from.renderer: { ports: [3000, { port: 53, protocol: UDP }, { port: 9999, protocol: SCTP }] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].to', value: [{ operation: { ports: ["3000"] } }] }
+
+  - it: a rule with no TCP ports renders no policy (the NetworkPolicy covers it)
+    set:
+      allowSameNamespace: false
+      ingress.grafana.from.renderer: { ports: [{ port: 514, protocol: UDP }] }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: deny-all-ingress }
+
+  - it: expands a port range and drops duplicates
+    set:
+      ingress.grafana.from.renderer: { ports: [{ port: 9400, endPort: 9403 }, 9401, 9410] }
+    documentSelector: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: 'spec.rules[0].to', value: [{ operation: { ports: ["9400", "9401", "9402", "9403", "9410"] } }] }
+
+  - it: a range of exactly 1024 ports is accepted
+    set:
+      ingress.grafana.from.renderer: { ports: [{ port: 20000, endPort: 21023 }] }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: more than 1024 ports after expansion fails, naming the rule
+    set:
+      ingress.grafana.from.renderer: { ports: [{ port: 20000, endPort: 21023 }, 3000] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana.from.renderer: its authorization policy would list more than 1024 ports"
+
+  - it: an egress range is never expanded (authorization is ingress only)
+    set:
+      egress.prometheus.to.any: { namespace: any, ports: [{ port: 1, endPort: 65535 }] }
+    asserts:
+      - notFailedTemplate: {}

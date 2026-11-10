@@ -43,7 +43,7 @@ tests:
     set:
       ingress.grafana.from.any: { ports: [3000] }
     asserts:
-      - equal: { path: spec.ingress[0].from, value: [{ podSelector: {} }] }
+      - equal: { path: 'spec.ingress[0].from', value: [{ podSelector: {} }] }
 
   - it: any + namespace X -> namespaceSelector only
     set:
@@ -57,7 +57,7 @@ tests:
     set:
       ingress.grafana.from.any: { namespace: any, ports: [3000] }
     asserts:
-      - equal: { path: spec.ingress[0].from, value: [{ namespaceSelector: {} }] }
+      - equal: { path: 'spec.ingress[0].from', value: [{ namespaceSelector: {} }] }
 
   - it: cidrs -> one ipBlock per CIDR, except only when set
     set:
@@ -115,8 +115,8 @@ tests:
     values:
       - ../values/ports.yaml
     asserts:
-      - equal: { path: spec.ingress[0].ports[0].port, value: 3000 }
-      - equal: { path: spec.ingress[0].ports[1].endPort, value: 9499 }
+      - equal: { path: 'spec.ingress[0].ports[0].port', value: 3000 }
+      - equal: { path: 'spec.ingress[0].ports[1].endPort', value: 9499 }
 
   # Istio ambient: 15008
   - it: istio adds TCP 15008 to in-cluster ingress rules
@@ -124,7 +124,7 @@ tests:
       mesh: istio
       ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
     asserts:
-      - equal: { path: spec.ingress[0].ports, value: [{ port: 3000, protocol: TCP }, { port: 15008, protocol: TCP }] }
+      - equal: { path: 'spec.ingress[0].ports', value: [{ port: 3000, protocol: TCP }, { port: 15008, protocol: TCP }] }
 
   - it: istio adds TCP 15008 to in-cluster egress rules
     set:
@@ -132,34 +132,34 @@ tests:
       egress.grafana.destinations: [vault]
       destinations.vault: { namespace: vault, workload: vault, ports: [8200] }
     asserts:
-      - equal: { path: spec.egress[0].ports, value: [{ port: 8200, protocol: TCP }, { port: 15008, protocol: TCP }] }
+      - equal: { path: 'spec.egress[0].ports', value: [{ port: 8200, protocol: TCP }, { port: 15008, protocol: TCP }] }
 
   - it: istio doesn't add 15008 to cidrs rules
     set:
       mesh: istio
       egress.grafana.destinations: [postgres]
     asserts:
-      - equal: { path: spec.egress[0].ports, value: [{ port: 5432, protocol: TCP }] }
+      - equal: { path: 'spec.egress[0].ports', value: [{ port: 5432, protocol: TCP }] }
 
   - it: istio doesn't duplicate 15008 already listed (egress-gateway)
     set:
       mesh: istio
       egress.grafana.destinations: [egress-gateway]
     asserts:
-      - equal: { path: spec.egress[0].ports, value: [{ port: 15008, protocol: TCP }] }
+      - equal: { path: 'spec.egress[0].ports', value: [{ port: 15008, protocol: TCP }] }
 
   - it: istio still adds TCP 15008 next to UDP 15008
     set:
       mesh: istio
       ingress.grafana.from.renderer: { ports: [{ port: 15008, protocol: UDP }] }
     asserts:
-      - equal: { path: spec.ingress[0].ports, value: [{ port: 15008, protocol: UDP }, { port: 15008, protocol: TCP }] }
+      - equal: { path: 'spec.ingress[0].ports', value: [{ port: 15008, protocol: UDP }, { port: 15008, protocol: TCP }] }
 
   - it: mesh none never adds 15008
     set:
       ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
     asserts:
-      - equal: { path: spec.ingress[0].ports, value: [{ port: 3000, protocol: TCP }] }
+      - equal: { path: 'spec.ingress[0].ports', value: [{ port: 3000, protocol: TCP }] }
 
   # Directions and DNS
   - it: allowDNS renders as an egress rule from every pod

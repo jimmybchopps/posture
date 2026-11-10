@@ -55,3 +55,53 @@ tests:
       ingress.grafana.from.prometheus: { namespace: prometheus, ports: [3000] }
     asserts:
       - notMatchRegexRaw: { pattern: WARNING }
+
+  # Authorization (mesh: istio)
+  - it: no authorization notes with mesh none
+    set:
+      authorization.enabled: false
+      ingress.grafana.from.renderer: { ports: [3000] }
+    asserts:
+      - notMatchRegexRaw: { pattern: "authorization is DISABLED" }
+      - notMatchRegexRaw: { pattern: "Authorization \\(Istio ambient\\)" }
+      - notMatchRegexRaw: { pattern: authorizationpolicies }
+
+  - it: istio says identity rules admit meshed clients only, and lists authorization policies
+    set:
+      mesh: istio
+    asserts:
+      - matchRegexRaw: { pattern: "admit in-cluster clients by mesh\\s+identity" }
+      - matchRegexRaw: { pattern: "kubectl get networkpolicies,authorizationpolicies.security.istio.io -n team" }
+      - notMatchRegexRaw: { pattern: WARNING }
+
+  - it: warns loudly when authorization is disabled under istio
+    set:
+      mesh: istio
+      authorization.enabled: false
+    asserts:
+      - matchRegexRaw: { pattern: "WARNING: authorization is DISABLED \\(authorization.enabled: false\\)" }
+      - notMatchRegexRaw: { pattern: authorizationpolicies }
+      - notMatchRegexRaw: { pattern: "Authorization \\(Istio ambient\\)" }
+
+  - it: warns on ingress rules whose authorization can only check the namespace
+    set:
+      mesh: istio
+      ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
+      ingress.grafana.from.renderer: { ports: [3000] }
+      ingress.grafana.from.vault: { namespace: vault, serviceAccount: vault, ports: [3000] }
+      ingress.grafana.from.any: { namespace: tooling, ports: [3000] }
+      egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080] }
+    asserts:
+      - matchRegexRaw: { pattern: "name a workload without a serviceAccount" }
+      - matchRegexRaw: { pattern: "- ingress.grafana.from.keycloak\\n" }
+      - matchRegexRaw: { pattern: "- ingress.grafana.from.renderer\\n" }
+      - notMatchRegexRaw: { pattern: "- ingress.grafana.from.vault\\n" }
+      - notMatchRegexRaw: { pattern: "- ingress.grafana.from.any\\n" }
+      - notMatchRegexRaw: { pattern: "- egress.grafana.to.keycloak\\n" }
+
+  - it: no namespace-only warning for the monitoring preset (it carries a serviceAccount)
+    set:
+      mesh: istio
+      ingress.grafana.sources.monitoring: [3000]
+    asserts:
+      - notMatchRegexRaw: { pattern: WARNING }

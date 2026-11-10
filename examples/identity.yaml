@@ -1,0 +1,20 @@
+# Istio ambient, checked by identity: api accepts web on 8080 only when the client runs as the
+# "web" service account. A pod that copies web's labels passes the NetworkPolicy (it checks
+# labels) but is refused by the AuthorizationPolicy (it checks the mesh identity), and a port
+# that isn't listed is refused by the AuthorizationPolicy even though the NetworkPolicy, which
+# only sees HBONE on 15008 between meshed pods, can't tell ports apart.
+mesh: istio
+allowSameNamespace: false
+
+ingress:
+  api:
+    from:
+      web:
+        serviceAccount: web
+        ports: [8080]
+
+egress:
+  web:
+    to:
+      api:
+        ports: [8080]

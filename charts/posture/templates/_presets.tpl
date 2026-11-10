@@ -19,6 +19,7 @@ requiresMesh is internal (users can't set it): referencing the entry with any ot
 monitoring:
   namespace: prometheus
   workload: prometheus
+  serviceAccount: prometheus
 ingress-gateway:
   namespace: gateway
   workload: any

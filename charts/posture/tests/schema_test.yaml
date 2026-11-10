@@ -251,3 +251,24 @@ tests:
       destinations.egress-gateway: { requiresMesh: { mesh: none } }
     asserts:
       - failedTemplate: {}
+
+  - it: accepts authorization.enabled false
+    set:
+      mesh: istio
+      authorization.enabled: false
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects a non-boolean authorization.enabled
+    set:
+      authorization.enabled: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "authorization"
+
+  - it: rejects an unknown key under authorization
+    set:
+      authorization.mode: strict
+    asserts:
+      - failedTemplate:
+          errorPattern: "authorization"
