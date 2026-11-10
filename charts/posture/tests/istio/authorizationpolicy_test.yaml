@@ -173,6 +173,7 @@ tests:
 
   - it: cidrs -> one entry per CIDR, each with its own except list
     set:
+      mtls.exclusions.grafana: [3000]   # under STRICT, a cidrs source needs its ports excluded
       sources.office-vpn:
         cidrs: [10.50.0.0/16, { cidr: 10.60.0.0/16, except: [10.60.1.0/24] }]
       ingress.grafana.sources.office-vpn: [3000]
@@ -263,3 +264,46 @@ tests:
       egress.prometheus.to.any: { namespace: any, ports: [{ port: 1, endPort: 65535 }] }
     asserts:
       - notFailedTemplate: {}
+
+  # Plaintext (mTLS exclusions and PERMISSIVE)
+  - it: an mTLS exclusion admits clients without a mesh identity on the excluded ports
+    set:
+      mtls.exclusions.api: [8081, 8082]
+    documentSelector: { path: metadata.name, value: allow-plaintext-to-api }
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: mtls.exclusions.api }
+      - equal:
+          path: spec
+          value:
+            action: ALLOW
+            selector: { matchLabels: { app.kubernetes.io/name: api } }
+            rules:
+              - from: [{ source: { notPrincipals: ["*"] } }]
+                to: [{ operation: { ports: ["8081", "8082"] } }]
+
+  - it: PERMISSIVE admits clients without a mesh identity everywhere in the namespace
+    set:
+      mtls.mode: PERMISSIVE
+    documentSelector: { path: metadata.name, value: allow-plaintext-to-all }
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: mtls.mode }
+      - equal:
+          path: spec
+          value:
+            action: ALLOW
+            rules: [{ from: [{ source: { notPrincipals: ["*"] } }] }]
+
+  - it: STRICT without exclusions, and inherit, render no plaintext policy
+    set:
+      allowSameNamespace: false
+      mtls.mode: inherit
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: deny-all-ingress }
+
+  - it: no plaintext policy with authorization disabled
+    set:
+      authorization.enabled: false
+      mtls.exclusions.api: [8081]
+    asserts:
+      - hasDocuments: { count: 0 }

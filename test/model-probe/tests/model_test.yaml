@@ -12,6 +12,7 @@ tests:
       - equal: { path: trustDomain, value: cluster.local }
       - equal: { path: networkPolicy, value: { ingress: true, egress: true } }
       - equal: { path: authorization, value: { enabled: true } }
+      - equal: { path: mtls, value: { mode: STRICT, exclusions: [] } }
       - equal: { path: allowSameNamespace, value: true }
 
   - it: carries overridden toggles
@@ -149,3 +150,22 @@ tests:
     asserts:
       - equal: { path: fixed.denyIngress.name, value: team-a-deny-all-ingress }
       - equal: { path: fixed.ambientProbes.name, value: team-a-allow-ingress-from-ambient-probes-to-all }
+
+  - it: carries mtls exclusions, normalized
+    set:
+      posture:
+        mesh: istio
+        mtls:
+          exclusions:
+            api: [8081, 8081]
+            web: { selector: instance, ports: [9090] }
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal:
+          path: mtls
+          value:
+            mode: STRICT
+            exclusions:
+              - { key: api, name: allow-plaintext-to-api, rule: mtls.exclusions.api, labels: { app.kubernetes.io/name: api }, ports: [8081] }
+              - { key: web, name: allow-plaintext-to-web, rule: mtls.exclusions.web, labels: { app.kubernetes.io/instance: web }, ports: [9090] }
+      - equal: { path: fixed.mtlsNamespace, value: { name: mtls-strict, rule: mtls.mode } }

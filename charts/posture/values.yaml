@@ -44,6 +44,29 @@ networkPolicy:
 authorization:
   enabled: true
 
+# -- mTLS for traffic into this namespace's workloads. Used when mesh isn't none; ignored with
+#    mesh: none (but exclusions then fail: no mesh can provide them).
+#    mode:        STRICT      only mesh (mTLS) clients, except the exclusions below
+#                 PERMISSIVE  mTLS and plaintext on every port
+#                 inherit     render nothing; the mesh-wide setting applies
+#                 There is no DISABLE: an excluded port still uses mTLS when the client offers it.
+#    exclusions:  workload in this namespace -> ports that also accept plaintext, only with
+#                 mode STRICT. A list of port numbers, or { selector, ports } to match another
+#                 label (selector as for ingress rules). "any" isn't accepted: Istio sets
+#                 per-port mTLS only on a selected workload.
+#    istio: PeerAuthentication mtls-<mode>, plus allow-plaintext-to-<workload> per exclusion.
+#           Wherever plaintext is accepted, authorization also admits clients without a mesh
+#           identity on those ports (allow-plaintext-to-<workload>; with PERMISSIVE,
+#           allow-plaintext-to-all); the NetworkPolicies decide which plaintext peers get in,
+#           since they see plaintext on its real port.
+#    Under STRICT, a cidrs source (outside the cluster, so never mTLS) must target excluded
+#    ports, or the render fails.
+mtls:
+  mode: STRICT
+  exclusions: {}
+#    grafana: [9090]
+#    renderer: { selector: instance, ports: [8081] }
+
 # -- Allow all traffic between pods in this namespace, on every port.
 #    Renders allow-same-namespace.
 allowSameNamespace: true

@@ -248,26 +248,59 @@ Decisions made in phase 2:
 
 ```yaml
 mtls:
-  mode: STRICT              # STRICT | PERMISSIVE | inherit (render nothing)
-  exclusions:               # workload (or any) -> ports that also accept plaintext
+  mode: STRICT              # STRICT (default) | PERMISSIVE | inherit (render nothing)
+  exclusions:               # workload in this namespace -> ports that also accept plaintext
     grafana: [9090]
+    renderer: { selector: instance, ports: [8081] }
 ```
 
 Confirmed for Istio ambient: with the namespace at STRICT, a workload can set individual ports
 to PERMISSIVE; disabling mTLS (`DISABLE`) on a port isn't supported. The chart follows that
 everywhere:
 
-- [ ] Istio: a namespace PeerAuthentication `mtls-<mode>`; one workload PeerAuthentication per
-      exclusion, `allow-plaintext-to-<workload>` (`allow-plaintext-to-all` for `any`), with
-      `portLevelMtls` set to `PERMISSIVE` for the listed ports.
-- [ ] Exclusions are only valid with `mode: STRICT`; with `PERMISSIVE` or `inherit` they `fail`
+- [x] Istio: a namespace PeerAuthentication `mtls-<mode>`; one workload PeerAuthentication per
+      exclusion, `allow-plaintext-to-<workload>`, with `portLevelMtls` set to `PERMISSIVE` for
+      the listed ports. `exclusions.any` is rejected (see the decisions below).
+- [x] Exclusions are only valid with `mode: STRICT`; with `PERMISSIVE` or `inherit` they `fail`
       (every port already accepts plaintext, or the chart isn't managing mTLS).
-- [ ] There is no `DISABLE` anywhere: the schema rejects it as a mode, and exclusions always
+- [x] There is no `DISABLE` anywhere: the schema rejects it as a mode, and exclusions always
       mean PERMISSIVE (mTLS still used when the client offers it).
-- [ ] Unit tests; e2e: a client outside the mesh is refused on a strict port and connects on
-      an excluded one, while a meshed client still connects with mTLS on the excluded port.
+- [x] Authorization agrees with mTLS: wherever plaintext is accepted, an AuthorizationPolicy
+      admits clients without a mesh identity on those ports.
+- [x] Unit tests (`tests/istio/peerauthentication_test.yaml`, plaintext cases in the
+      authorization suite, model failures, schema, naming, NOTES, model-probe).
+- [ ] e2e (scenarios written: `mtls-strict`, `mtls-permissive`; first real run pending): a
+      client outside the mesh is refused on a strict port and connects on an excluded one,
+      while a meshed client still connects with mTLS on the excluded port.
 
 **Done when** the e2e matrix passes for strict, permissive, and excluded ports.
+
+Decisions made in phase 3:
+
+- `mtls.mode` defaults to STRICT. With `mesh: none` the block is ignored, except that non-empty
+  exclusions `fail` (no mesh can provide them).
+- Plaintext and authorization: phase 2's authorization admits in-cluster clients by mesh
+  identity, which a plaintext client doesn't have. So wherever mTLS accepts plaintext,
+  authorization admits clients without an identity (`source.notPrincipals: ["*"]`): one
+  `allow-plaintext-to-<workload>` AuthorizationPolicy per exclusion on its ports (same name as
+  its PeerAuthentication), and under PERMISSIVE one namespace-wide `allow-plaintext-to-all`.
+  The NetworkPolicies decide which plaintext peers get in: plaintext isn't HBONE, so they see
+  its real port. Meshed clients still need their identity rules. Under `inherit` the chart
+  doesn't know the mesh-wide mode, so it adds no plaintext policy.
+- Under STRICT, an ingress rule whose source is `cidrs` (outside the cluster, never mTLS) must
+  have every TCP port covered by an exclusion selecting the same target; otherwise the render
+  fails, naming the rule and port. A `cidrs` source into target `any` can't be covered and
+  fails, suggesting PERMISSIVE. UDP ports are ignored (no mTLS on UDP).
+- `exclusions.any` is rejected by the schema: Istio applies `portLevelMtls` only to a
+  PeerAuthentication with a workload selector (one without a selector is the namespace-wide
+  policy), so "every pod, these ports" can't be expressed. Exclusions name the workloads that
+  need it. This is unrelated to `from.any`/`to.any` in traffic rules: a meshed scraper (for
+  example Prometheus checked by its service account) needs no exclusion at all.
+- Exclusion ports are plain numbers (no protocol, no range): `portLevelMtls` keys are single
+  TCP ports. An exclusion is a list, or `{ selector, ports }` to match another label.
+- e2e: `MESHED=0 namespace <name>` creates a namespace outside the mesh. Removing an exclusion
+  from an example on the command line takes `--set-json 'mtls.exclusions={}'`; `--set ...=null`
+  reaches schema validation as a literal null and fails.
 
 ---
 

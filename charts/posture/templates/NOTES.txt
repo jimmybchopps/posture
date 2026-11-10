@@ -35,7 +35,30 @@ WARNING: these ingress rules name a workload without a serviceAccount. Their aut
 {{- end }}
 
 Authorization (Istio ambient): the authorization policies admit in-cluster clients by mesh
-identity, so a client in a namespace outside the mesh is refused even where a rule names it.
+identity, so a client in a namespace outside the mesh is refused even where a rule names it,
+except on ports that accept plaintext (see mTLS below).
+{{- end }}
+{{- if eq $model.mesh "istio" }}
+{{- if eq $model.mtls.mode "STRICT" }}
+
+mTLS (Istio ambient): STRICT: only mesh clients, with mTLS.
+{{- with $model.mtls.exclusions }}
+  These ports also accept plaintext (mtls.exclusions); authorization admits clients without a
+  mesh identity there, and the NetworkPolicies decide which plaintext peers get in:
+{{- range . }}
+  - {{ .key }}: {{ range $i, $p := .ports }}{{ if $i }}, {{ end }}{{ int $p }}{{ end }}
+{{- end }}
+{{- end }}
+{{- else if eq $model.mtls.mode "PERMISSIVE" }}
+
+mTLS (Istio ambient): PERMISSIVE: every port also accepts plaintext, and authorization admits
+  clients without a mesh identity (allow-plaintext-to-all), so for plaintext clients the
+  NetworkPolicies alone decide which peers and ports get in.
+{{- else }}
+
+mTLS (Istio ambient): inherit: nothing is rendered, the mesh-wide setting applies. Plaintext
+  clients are still refused by authorization unless they match a cidrs rule.
+{{- end }}
 {{- end }}
 {{- $untrusted := list -}}
 {{- range $model.rules -}}
@@ -56,5 +79,5 @@ WARNING: these rules match a workload label in every namespace (namespace: any) 
 
 See which objects it created, and the rule each one came from:
 
-  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
+  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }}{{ if and (eq $model.mesh "istio") (ne $model.mtls.mode "inherit") }},peerauthentications.security.istio.io{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
     -o custom-columns='NAME:.metadata.name,RULE:.metadata.annotations.posture\.dev/rule'

@@ -122,10 +122,12 @@ stop_external() {
 
 NAMESPACES=()
 
-namespace() { # namespace <name>: created fresh; in the ambient mesh when MESH=istio
+# namespace <name>: created fresh; in the ambient mesh when MESH=istio, unless MESHED=0 (a
+# namespace outside the mesh, whose clients send plaintext), e.g. MESHED=0 namespace plain
+namespace() {
   local ns=$1
   "$KUBECTL" create namespace "$ns" >/dev/null
-  if [[ $MESH == istio ]]; then
+  if [[ $MESH == istio && ${MESHED:-1} != 0 ]]; then
     "$KUBECTL" label namespace "$ns" istio.io/dataplane-mode=ambient >/dev/null
   fi
   NAMESPACES+=("$ns")

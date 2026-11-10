@@ -1,0 +1,28 @@
+# Istio ambient, STRICT mTLS with one exclusion: api accepts web (a mesh client, checked by its
+# service account) on 8080 and 8081, and x from namespace "plain" (outside the mesh, so
+# plaintext) on the same ports. mTLS lets plaintext in on 8081 only (mtls.exclusions.api), so x
+# is refused on 8080 and connects on 8081; web uses mTLS on both. The NetworkPolicies still
+# decide which plaintext peers reach 8081: they see plaintext on its real port.
+mesh: istio
+allowSameNamespace: false
+
+mtls:
+  mode: STRICT
+  exclusions:
+    api: [8081]
+
+ingress:
+  api:
+    from:
+      web:
+        serviceAccount: web
+        ports: [8080, 8081]
+      x:
+        namespace: plain
+        ports: [8080, 8081]
+
+egress:
+  web:
+    to:
+      api:
+        ports: [8080, 8081]

@@ -1,0 +1,27 @@
+{{- /*
+Istio ambient PeerAuthentications, when mesh: istio and mtls.mode isn't inherit:
+  mtls-<mode>                 the namespace's mode (STRICT or PERMISSIVE)
+  allow-plaintext-to-<key>    per exclusion (STRICT only): the workload stays STRICT except the
+                              listed ports, which are PERMISSIVE. Never DISABLE: an excluded
+                              port still uses mTLS when the client offers it.
+Their AuthorizationPolicy counterparts (admitting clients without an identity where plaintext
+is accepted) are in authorizationpolicy.yaml.
+*/ -}}
+{{- $model := include "posture.model" . | fromJson -}}
+{{- if eq $model.mesh "istio" -}}
+{{- with $model.fixed.mtlsNamespace }}
+---
+{{ include "posture.istio.object" (dict "root" $ "kind" "PeerAuthentication" "name" .name "rule" .rule "spec" (dict "mtls" (dict "mode" $model.mtls.mode))) }}
+{{- end -}}
+{{- range $model.mtls.exclusions -}}
+  {{- $portLevel := dict -}}
+  {{- range .ports -}}
+    {{- $_ := set $portLevel (toString (int .)) (dict "mode" "PERMISSIVE") -}}
+  {{- end }}
+---
+{{ include "posture.istio.object" (dict "root" $ "kind" "PeerAuthentication" "name" .name "rule" .rule "spec" (dict
+  "selector" (dict "matchLabels" .labels)
+  "mtls" (dict "mode" "STRICT")
+  "portLevelMtls" $portLevel)) }}
+{{- end -}}
+{{- end -}}

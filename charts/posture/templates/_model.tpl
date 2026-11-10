@@ -9,11 +9,16 @@ Shape:
   mesh, namespace, trustDomain, allowSameNamespace
   networkPolicy: { ingress, egress }      # which directions get NetworkPolicies
   authorization: { enabled }              # whether the mesh's authorization policies render
+  mtls:                                   # see posture.mtls
+    mode: STRICT | PERMISSIVE | inherit
+    exclusions: [{ key, name, rule, labels, ports: [int] }]   # allow-plaintext-to-<key>
   fixed:                                  # fixed objects; a key is absent when not wanted
     denyIngress:   { name, rule }         # deny-all-ingress
     denyEgress:    { name, rule }         # deny-all-egress
     sameNamespace: { name, rule }         # allow-same-namespace (allowSameNamespace)
     ambientProbes: { name, rule }         # allow-ingress-from-ambient-probes-to-all (istio)
+    mtlsNamespace: { name, rule }         # mtls-<mode> (a mesh, mode not inherit)
+    plaintextAll:  { name, rule }         # allow-plaintext-to-all (a mesh, mode PERMISSIVE)
   rules:                                  # one per target and peer pair, in values order
     - name: allow-ingress-from-keycloak-to-grafana
       rule: ingress.grafana.from.keycloak # the posture.dev/rule annotation
@@ -313,7 +318,10 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
   {{- $_ := set $fixed "ambientProbes" (dict "name" (include "posture.name" (dict "root" $root "rule" "mesh" "fixed" "allow-ingress-from-ambient-probes-to-all")) "rule" "mesh") -}}
 {{- end -}}
 
-{{- $_ := include "posture.checkCollisions" (dict "fixed" $fixed "rules" $acc.rules) -}}
+{{- $mtlsOut := dict -}}
+{{- $_ := include "posture.mtls" (dict "root" $root "mesh" $mesh "rules" $acc.rules "fixed" $fixed "out" $mtlsOut) -}}
+
+{{- $_ := include "posture.checkCollisions" (dict "fixed" $fixed "rules" (concat $acc.rules $mtlsOut.mtls.exclusions)) -}}
 
 {{- toJson (dict
   "mesh" $mesh
@@ -321,9 +329,82 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
   "trustDomain" $v.trustDomain
   "networkPolicy" (dict "ingress" $v.networkPolicy.ingress "egress" $v.networkPolicy.egress)
   "authorization" (dict "enabled" $v.authorization.enabled)
+  "mtls" $mtlsOut.mtls
   "allowSameNamespace" $v.allowSameNamespace
   "fixed" $fixed
   "rules" $acc.rules) -}}
+{{- end -}}
+
+{{/*
+mTLS: the mode, the exclusions, and the fixed objects they need. With mesh: none nothing is
+managed, but exclusions fail (no mesh can provide them). Exclusions are only valid with
+STRICT. Under STRICT, a cidrs source (outside the cluster, never mTLS) must target excluded
+ports, or nothing could ever reach them.
+Adds fixed.mtlsNamespace (mtls-<mode>, unless inherit) and fixed.plaintextAll
+(allow-plaintext-to-all, PERMISSIVE) when a mesh is set.
+Input: dict "root" "mesh" "rules" "fixed" "out"; sets out.mtls:
+  { mode, exclusions: [{ key, name, rule, labels, ports: [int] }] }
+*/}}
+{{- define "posture.mtls" -}}
+{{- $root := .root -}}
+{{- $v := $root.Values -}}
+{{- $mode := $v.mtls.mode -}}
+{{- $exclusions := list -}}
+{{- range $key, $entry := ($v.mtls.exclusions | default dict) -}}
+  {{- $path := printf "mtls.exclusions.%s" $key -}}
+  {{- if eq $.mesh "none" -}}
+    {{- fail (printf "posture: %s: exclusions need a mesh to accept plaintext beside mTLS; mesh is none" $path) -}}
+  {{- end -}}
+  {{- if ne $mode "STRICT" -}}
+    {{- fail (printf "posture: %s: exclusions only apply with mtls.mode STRICT; mode is %s (%s)" $path $mode (ternary "every port already accepts plaintext" "the chart isn't managing mTLS" (eq $mode "PERMISSIVE"))) -}}
+  {{- end -}}
+  {{- $ports := $entry -}}
+  {{- $selector := "name" -}}
+  {{- if kindIs "map" $entry -}}
+    {{- $ports = $entry.ports -}}
+    {{- $selector = $entry.selector | default "name" -}}
+  {{- end -}}
+  {{- $intPorts := list -}}
+  {{- range $ports -}}{{- $intPorts = append $intPorts (int .) -}}{{- end -}}
+  {{- $name := include "posture.name" (dict "root" $root "rule" $path "fixed" (printf "allow-plaintext-to-%s" $key)) -}}
+  {{- $exclusions = append $exclusions (dict
+    "key" $key "name" $name "rule" $path
+    "labels" (dict (include "posture.selectorLabel" $selector) $key)
+    "ports" ($intPorts | uniq)) -}}
+{{- end -}}
+{{- if ne .mesh "none" -}}
+  {{- if ne $mode "inherit" -}}
+    {{- $_ := set .fixed "mtlsNamespace" (dict "name" (include "posture.name" (dict "root" $root "rule" "mtls.mode" "fixed" (printf "mtls-%s" (lower $mode)))) "rule" "mtls.mode") -}}
+  {{- end -}}
+  {{- if eq $mode "PERMISSIVE" -}}
+    {{- $_ := set .fixed "plaintextAll" (dict "name" (include "posture.name" (dict "root" $root "rule" "mtls.mode" "fixed" "allow-plaintext-to-all")) "rule" "mtls.mode") -}}
+  {{- end -}}
+  {{- if eq $mode "STRICT" -}}
+    {{- range $rule := .rules -}}
+      {{- if and (eq $rule.direction "ingress") (not $rule.peer.inCluster) -}}
+        {{- $covered := list -}}
+        {{- range $exclusions -}}
+          {{- if eq (toJson .labels) (toJson $rule.target.labels) -}}{{- $covered = concat $covered .ports -}}{{- end -}}
+        {{- end -}}
+        {{- range $rule.ports -}}
+          {{- if eq .protocol "TCP" -}}
+            {{- $first := int .port -}}
+            {{- $last := ternary (int (get . "endPort")) $first (hasKey . "endPort") -}}
+            {{- range $p := untilStep $first (int (add $last 1)) 1 -}}
+              {{- if not (has $p $covered) -}}
+                {{- if not $rule.target.labels -}}
+                  {{- fail (printf "posture: %s: port %d is reached from outside the cluster (cidrs), which is never mTLS, but mtls.mode is STRICT and the target is every pod (any), which exclusions can't name; use mtls.mode PERMISSIVE" $rule.rule $p) -}}
+                {{- end -}}
+                {{- fail (printf "posture: %s: port %d is reached from outside the cluster (cidrs), which is never mTLS, but mtls.mode is STRICT; add it under mtls.exclusions.%s, or use mtls.mode PERMISSIVE" $rule.rule $p $rule.target.key) -}}
+              {{- end -}}
+            {{- end -}}
+          {{- end -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $_ := set .out "mtls" (dict "mode" $mode "exclusions" $exclusions) -}}
 {{- end -}}
 
 {{/*
@@ -334,7 +415,7 @@ Input: dict "fixed" <dict of {name, rule}> "rules" <list>
 {{- define "posture.checkCollisions" -}}
 {{- $seen := dict -}}
 {{- $all := list -}}
-{{- range $key := list "denyIngress" "denyEgress" "sameNamespace" "ambientProbes" -}}
+{{- range $key := list "denyIngress" "denyEgress" "sameNamespace" "ambientProbes" "mtlsNamespace" "plaintextAll" -}}
   {{- with get $.fixed $key -}}{{- $all = append $all . -}}{{- end -}}
 {{- end -}}
 {{- range .rules -}}{{- $all = append $all . -}}{{- end -}}

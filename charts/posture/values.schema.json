@@ -45,6 +45,45 @@
         }
       }
     },
+    "mtls": {
+      "description": "The namespace's mTLS mode, and workloads that also accept plaintext on listed ports. Used when mesh isn't none.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "description": "STRICT, PERMISSIVE, or inherit (render nothing; the mesh-wide setting applies). There is no DISABLE.",
+          "type": "string",
+          "enum": ["STRICT", "PERMISSIVE", "inherit"]
+        },
+        "exclusions": {
+          "description": "Workload in this namespace -> ports that also accept plaintext (PERMISSIVE); only with mode STRICT.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/nameNotAny"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/definitions/exclusionPorts"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["ports"],
+                "properties": {
+                  "selector": {
+                    "$ref": "#/definitions/selector"
+                  },
+                  "ports": {
+                    "$ref": "#/definitions/exclusionPorts"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     "allowSameNamespace": {
       "description": "Allow all traffic between pods in this namespace.",
       "type": "boolean"
@@ -140,6 +179,14 @@
       "minProperties": 1,
       "additionalProperties": {
         "type": "string"
+      }
+    },
+    "exclusionPorts": {
+      "description": "Plain port numbers: mTLS settings are per single TCP port (no protocol, no range).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/portNumber"
       }
     },
     "portNumber": {

@@ -17,13 +17,13 @@ tests:
     asserts:
       - notFailedTemplate: {}
 
-  - it: rejects an unknown top-level key
+  - it: rejects an unknown top-level key (exceptions arrive in phase 4)
     set:
-      mtls:
-        mode: STRICT
+      exceptions:
+        legacy: { policy: require-non-root }
     asserts:
       - failedTemplate:
-          errorPattern: "mtls"
+          errorPattern: "exceptions"
 
   - it: rejects a mesh that isn't supported yet
     set:
@@ -272,3 +272,49 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "authorization"
+
+  - it: accepts every mtls mode except DISABLE
+    set:
+      mesh: istio
+      mtls.mode: inherit
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects mtls mode DISABLE
+    set:
+      mtls.mode: DISABLE
+    asserts:
+      - failedTemplate:
+          errorPattern: "mtls"
+
+  - it: accepts exclusions as a list or as selector and ports
+    set:
+      mesh: istio
+      mtls.exclusions.api: [8081]
+      mtls.exclusions.web: { selector: instance, ports: [9090] }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects exclusions.any
+    set:
+      mesh: istio
+      mtls.exclusions.any: [8081]
+    asserts:
+      - failedTemplate:
+          errorPattern: "any"
+
+  - it: rejects a port object in exclusions (single TCP port numbers only)
+    set:
+      mesh: istio
+      mtls.exclusions.api: [{ port: 8081, protocol: UDP }]
+    asserts:
+      - failedTemplate:
+          errorPattern: "exclusions"
+
+  - it: rejects an empty exclusion port list
+    set:
+      mesh: istio
+      mtls.exclusions.api: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "exclusions"
