@@ -47,7 +47,7 @@ all-namespaces
 The name of a generated object, with namePrefix applied and the length limit enforced.
 
 Either a fixed name:
-  include "posture.name" (dict "root" $ "rule" "defaultDeny" "fixed" "deny-all-ingress")
+  include "posture.name" (dict "root" $ "rule" "networkPolicy.ingress" "fixed" "deny-all-ingress")
 or the allow convention, allow-<direction>-from-<source>-to-<destination>, with tokens from
 posture.targetToken and posture.peerToken:
   include "posture.name" (dict "root" $ "rule" "ingress.grafana.from.keycloak"
@@ -61,14 +61,14 @@ posture.targetToken and posture.peerToken:
 {{- $base = .fixed -}}
 {{- else -}}
 {{- if not (and .direction .source .destination) -}}
-{{- fail (printf "posture.name (rule %s): needs either fixed, or direction, source, and destination" .rule) -}}
+{{- fail (printf "posture: %s: posture.name needs either fixed, or direction, source, and destination" .rule) -}}
 {{- end -}}
 {{- $base = printf "allow-%s-from-%s-to-%s" .direction .source .destination -}}
 {{- end -}}
 {{- $prefix := .root.Values.namePrefix | default "" -}}
 {{- $name := ternary (printf "%s-%s" $prefix $base) $base (ne $prefix "") -}}
 {{- if gt (len $name) 253 -}}
-{{- fail (printf "rule %s: object name %q is %d characters; the limit is 253" .rule $name (len $name)) -}}
+{{- fail (printf "posture: %s: object name %q is %d characters; the limit is 253" .rule $name (len $name)) -}}
 {{- end -}}
 {{- $name -}}
 {{- end -}}

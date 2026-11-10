@@ -1,0 +1,148 @@
+suite: model top level
+templates:
+  - templates/model.yaml
+release:
+  namespace: team
+tests:
+  - it: carries the toggles and defaults
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: mesh, value: none }
+      - equal: { path: namespace, value: team }
+      - equal: { path: trustDomain, value: cluster.local }
+      - equal: { path: networkPolicy, value: { ingress: true, egress: true } }
+      - equal: { path: allowSameNamespace, value: true }
+
+  - it: carries overridden toggles
+    set:
+      posture:
+        mesh: istio
+        trustDomain: example.org
+        networkPolicy: { ingress: false }
+        allowSameNamespace: false
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: mesh, value: istio }
+      - equal: { path: trustDomain, value: example.org }
+      - equal: { path: networkPolicy, value: { ingress: false, egress: true } }
+      - equal: { path: allowSameNamespace, value: false }
+
+  - it: with defaults, the only rule is allowDNS
+    asserts:
+      - hasDocuments: { count: 2 }
+
+  - it: allowDNS is an egress rule from every pod to the dns destination
+    documentSelector: { path: name, value: allow-egress-from-all-to-dns }
+    asserts:
+      - equal: { path: rule, value: allowDNS }
+      - equal: { path: direction, value: egress }
+      - equal: { path: target, value: { key: any, labels: {} } }
+      - equal:
+          path: peer
+          value:
+            key: dns
+            inCluster: true
+            labels: { k8s-app: kube-dns }
+            namespace: { scope: named, name: kube-system }
+            serviceAccount: ""
+      - equal:
+          path: ports
+          value: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+
+  - it: allowDNS false drops the rule
+    set:
+      posture.allowDNS: false
+    asserts:
+      - hasDocuments: { count: 1 }
+
+  - it: allowDNS follows an overridden dns destination
+    set:
+      posture.destinations.dns: { namespace: dns-system }
+    documentSelector: { path: name, value: allow-egress-from-all-to-dns }
+    asserts:
+      - equal: { path: peer.namespace, value: { scope: named, name: dns-system } }
+      - equal: { path: peer.labels, value: { k8s-app: kube-dns } }
+
+  - it: namePrefix applies to rule names
+    set:
+      posture.namePrefix: team-a
+    documentSelector: { path: name, value: team-a-allow-egress-from-all-to-dns }
+    asserts:
+      - equal: { path: rule, value: allowDNS }
+
+  - it: one rule per from entry and per sources reference
+    set:
+      posture:
+        allowDNS: false
+        ingress:
+          grafana:
+            from:
+              keycloak: { namespace: keycloak, ports: [3000] }
+              any: { ports: [3000] }
+            sources:
+              monitoring: [3000]
+              ingress-gateway: [3000]
+    asserts:
+      - hasDocuments: { count: 5 }
+
+  - it: one rule per to entry and per destinations reference, duplicates dropped
+    set:
+      posture:
+        allowDNS: false
+        egress:
+          grafana:
+            to:
+              keycloak: { namespace: keycloak, ports: [8080] }
+            destinations: [postgres, sso, postgres]
+    asserts:
+      - hasDocuments: { count: 4 }
+
+  - it: fixed objects by default
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal:
+          path: fixed
+          value:
+            denyIngress: { name: deny-all-ingress, rule: networkPolicy.ingress }
+            denyEgress: { name: deny-all-egress, rule: networkPolicy.egress }
+            sameNamespace: { name: allow-same-namespace, rule: allowSameNamespace }
+
+  - it: istio adds the ambient probe object
+    set:
+      posture.mesh: istio
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal:
+          path: fixed.ambientProbes
+          value: { name: allow-ingress-from-ambient-probes-to-all, rule: mesh }
+
+  - it: allowSameNamespace false drops its fixed object
+    set:
+      posture.allowSameNamespace: false
+    documentSelector: { path: name, value: model }
+    asserts:
+      - notExists: { path: fixed.sameNamespace }
+
+  - it: fixed objects stay in the model when a direction is off
+    set:
+      posture.networkPolicy: { ingress: false, egress: false }
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: fixed.denyIngress.name, value: deny-all-ingress }
+      - equal: { path: fixed.denyEgress.name, value: deny-all-egress }
+
+  - it: rules stay in the model when their direction is off
+    set:
+      posture.networkPolicy.egress: false
+    documentSelector: { path: name, value: allow-egress-from-all-to-dns }
+    asserts:
+      - equal: { path: rule, value: allowDNS }
+
+  - it: namePrefix applies to fixed objects
+    set:
+      posture.namePrefix: team-a
+      posture.mesh: istio
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: fixed.denyIngress.name, value: team-a-deny-all-ingress }
+      - equal: { path: fixed.ambientProbes.name, value: team-a-allow-ingress-from-ambient-probes-to-all }

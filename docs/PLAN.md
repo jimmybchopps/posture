@@ -41,51 +41,84 @@ Decisions made in phase 0:
 
 ### 1a. Presets and the model
 
-- [ ] `_presets.tpl`: the predefined sources and destinations from CLAUDE.md.
-- [ ] Preset merging: user entries merge field by field over presets; an in-cluster field
+- [x] `_presets.tpl`: the predefined sources and destinations from CLAUDE.md.
+- [x] Preset merging: user entries merge field by field over presets; an in-cluster field
       (`namespace`, `workload`, `podSelector`) drops the preset's `cidrs`; `cidrs` together
       with an in-cluster field in user values is a `fail`. New names are allowed.
-- [ ] `_model.tpl`: normalize `ingress` and `egress` into rules, each with its object name,
+- [x] `_model.tpl`: normalize `ingress` and `egress` into rules, each with its object name,
       direction, target `podSelector`, normalized peers, and normalized ports.
-- [ ] Selector resolution with the precedence entry > rule > `name`, mapping the short names
+- [x] Selector resolution with the precedence entry > rule > `name`, mapping the short names
       to labels.
-- [ ] The reserved key `any`, for targets and for peers, with `namespace` omitted, set, or
+- [x] The reserved key `any`, for targets and for peers, with `namespace` omitted, set, or
       `any` (see the table in CLAUDE.md).
-- [ ] Ports: required and non-empty everywhere they appear; numbers or port objects with a
+- [x] Ports: required and non-empty everywhere they appear; numbers or port objects with a
       numeric `port`; `protocol` defaults to TCP. Port names are a schema error.
-- [ ] Unknown preset references (`destinations: [postgress]`) `fail` with the list of known
+- [x] Unknown preset references (`destinations: [postgress]`) `fail` with the list of known
       names.
-- [ ] Schema: selector enum, port shape, `endPort >= port`, `any` not allowed as a
-      `serviceAccount` or selector value, each `from`/`to` entry is either a workload entry
-      or a `cidrs` entry.
+- [x] Schema: selector enum, port shape, `any` not allowed as a `serviceAccount` or selector
+      value, each `from`/`to` entry is either a workload entry or a `cidrs` entry.
+      `endPort >= port` is checked in `_model.tpl` (draft-07 can't compare two fields).
+
+Decisions made in 1a:
+
+- Overrides work in both directions: `cidrs` on an in-cluster preset drops its namespace and
+  workload, just as an in-cluster field drops a preset's `cidrs`.
+- New in-cluster sources and destinations use `workload: any` for every pod in a namespace;
+  `workload` (or `podSelector`) is required for new in-cluster entries.
+- `podSelector` is only for source and destination definitions, not `from`/`to` entries.
+- The preset `kubeAPI` is renamed `kube-api`: object names must be lowercase, and keys follow
+  the same rule.
+- `allowDNS` is an ordinary rule in the model (egress from `any` to `dns`), so its name comes
+  from the convention and an overridden `dns` destination applies to it.
+- `templates/validate.yaml` builds the model on every render, so bad values fail the install
+  even before a renderer uses them.
+- The model is tested directly through `test/model-probe/`, a test-only chart that depends on
+  `charts/posture` and prints the model. Renderer tests in 1b and later can stay small.
+- The schema accepts Helm's `global` key, which Helm adds when the chart is a dependency.
 
 ### 1b. Rendered policies
 
-- [ ] `deny-all-ingress`, `deny-all-egress`, `allow-same-namespace`,
+- [x] `deny-all-ingress`, `deny-all-egress`, `allow-same-namespace`,
       `allow-egress-from-all-to-dns`, and `allow-ingress-from-ambient-probes-to-all`
       (`mesh: istio` only).
-- [ ] `mesh: istio`: add TCP 15008 to every ingress and egress rule whose peer is inside the
+- [x] `mesh: istio`: add TCP 15008 to every ingress and egress rule whose peer is inside the
       cluster (not to `cidrs` rules), deduplicated. NetworkPolicies only.
-- [ ] One NetworkPolicy per target and peer pair (each `from`/`to` entry and each
+- [x] One NetworkPolicy per target and peer pair (each `from`/`to` entry and each
       `sources`/`destinations` reference), named `allow-<direction>-from-<source>-to-<destination>`.
-- [ ] Collision check: two rules producing the same name fail the render, naming both.
-- [ ] `posture.dev/rule` annotation on every object.
-- [ ] NOTES.txt warning: `namespace: any` on a named workload without `serviceAccount`.
+- [x] Collision check: two rules producing the same name fail the render, naming both.
+- [x] `posture.dev/rule` annotation on every object.
+- [x] NOTES.txt warning: `namespace: any` on a named workload without `serviceAccount`.
+
+Decisions made in 1b:
+
+- `defaultDeny` is replaced by `networkPolicy: { ingress, egress }`, a per-direction
+  troubleshooting switch. Any NetworkPolicy that selects a pod for a direction denies the rest
+  of that direction, so `defaultDeny: false` never took effect while `allowDNS`,
+  `allowSameNamespace`, or the probe policy were on. Off now means nothing at all is rendered
+  for that direction; rules are still validated and stay in the model (phase 2 reads them).
+  NOTES.txt warns loudly.
+- The deny objects are annotated `networkPolicy.ingress` / `networkPolicy.egress`, and the
+  probe policy `mesh`.
+- The collision check lives in the model and covers fixed objects and every rule, including
+  rules in a disabled direction, so names can't start colliding when a switch is flipped back.
+- 15008 is skipped only when exactly TCP 15008 is listed; a range that covers it still gets
+  it added (harmless).
+- The untrusted-label NOTES warning covers egress peers and custom sources/destinations too.
 
 ### 1c. Tests and examples
 
-- [ ] Unit tests: every peer form in the translation list, every selector value and the
+- [x] Unit tests: every peer form in the translation list, every selector value and the
       precedence, every port form, preset overrides (cidrs only, ports only, switch to
       in-cluster, new name), the `fail` cases, every row of the naming tables in CLAUDE.md,
       the collision `fail`, and name stability when keys are added.
-- [ ] `examples/`:
+- [x] `examples/`:
       - `minimal.yaml`: defaults only
       - `prometheus.yaml`: the `prometheus` namespace, egress to every namespace on listed
         metrics ports
       - `grafana.yaml`: `ingress-gateway` and `monitoring` sources in, `postgres` and `sso` out
       - `strict.yaml`: `allowSameNamespace: false`
       - `istio.yaml`: `grafana.yaml` with `mesh: istio`
-- [ ] e2e on k3d with Calico (flannel disabled): deploy a server and client pods in two
+- [x] e2e on k3d (`test/e2e/`) with Calico (flannel disabled): deploy a server and client pods in two
       namespaces, apply each example, and check that allowed connections succeed and denied
       ones time out, including Prometheus scraping into another namespace. With
       `mesh: istio`, also check that meshed traffic on a listed port connects (15008 added),
@@ -94,6 +127,49 @@ Decisions made in phase 0:
 **Done when** every example renders, validates with kubeconform, and passes e2e with
 `mesh: none` and `mesh: istio`.
 
+Decisions made in 1c:
+
+- `prometheus.yaml` includes port 3000 so the e2e test can scrape Grafana across namespaces.
+- The external host for the `cidrs` presets is a plain container on the k3d Docker network
+  (a 172.x address, inside the private ranges), never a pod IP.
+- e2e deny means "no HTTP response" rather than "timeout": under ambient, ztunnel can reset a
+  blocked connection. Every scenario first runs all its checks without posture (baseline), so
+  a deny can't pass because a server was broken.
+- Example snapshots are committed (`charts/posture/tests/__snapshot__/`); update them with
+  `make unittest-update` after reviewing the change.
+- The Istio checks live in the `grafana-prometheus` scenario under `MESH=istio`. A meshed
+  intruder's denied connection is the 15008 check (its HBONE to 15008 is what's blocked), and
+  a grafana restart under the policy is the probe check.
+- Calico is installed with the Tigera operator, following k3d's guide
+  (https://k3d.io/v5.9.0/usage/advanced/calico/) as closely as possible: k3s gets
+  `--cluster-cidr=192.168.0.0/16` to match the unmodified `custom-resources.yaml`. istio-cni
+  uses its chart defaults (`/etc/cni/net.d`, `/opt/cni/bin`), which is where the operator puts
+  Calico's CNI files; `global.platform=k3s` points elsewhere and must not be set.
+- Istio charts come from `https://blob.istio.io/istio-release/charts`; 1.31 and later aren't
+  published to the old `istio-release.storage.googleapis.com`, which shuts down on
+  2026-12-16.
+- Under `MESH=istio`, the harness restarts every workload after installing posture and before
+  the policy checks. ztunnel pools the HBONE connections the baseline checks opened and sends
+  later requests over them, and NetworkPolicy only judges new connections, so without the
+  restart every in-cluster deny connected. ztunnel itself isn't restarted: that briefly breaks
+  all meshed traffic, which a deny check would count as a pass. The same behaviour affects real
+  clusters: under ambient, a stricter posture doesn't cut existing connections between meshed
+  workloads until they reconnect.
+
+**Accepted failures (until phase 2).** Phase 1 is complete with `mesh: none` passing in full
+and `mesh: istio` passing everything except three wrong-port denies (48 passed, 3 failed):
+
+- `strict`: `deny apps/web -> api.apps:8081`
+- `grafana-prometheus`: `deny gateway/envoy -> grafana.grafana:3001`
+- `grafana-prometheus`: `deny prometheus/prometheus -> x.intruder:8081`
+
+Each peer is allowed on another port, so 15008 is open between the pair, and between meshed
+pods Calico only ever sees 15008, never the original port. NetworkPolicy under ambient limits
+which workloads can talk, not on which ports. The port limit is enforced by the phase 2
+AuthorizationPolicies (ztunnel checks the original port after unwrapping HBONE). These checks
+are left failing, with no changes to the harness or the chart, as phase 2's target. Until then
+the `mesh: istio` e2e job in CI is expected to fail on exactly these three.
+
 ---
 
 ## Phase 2: authorization policies (Istio ambient first)
@@ -101,7 +177,7 @@ Decisions made in phase 0:
 Generated from `ingress` (authorization is enforced at the destination, so `egress` stays
 NetworkPolicy-only). Enforced by ztunnel at L4.
 
-- [ ] When `mesh: istio` and `defaultDeny.ingress`: a namespace-wide allow-nothing
+- [ ] When `mesh: istio` and `authorization.enabled`: a namespace-wide allow-nothing
       AuthorizationPolicy (empty spec) named `deny-all-ingress`.
 - [ ] `allowSameNamespace`: ALLOW from `namespaces: [<this namespace>]`, named
       `allow-same-namespace`.
@@ -124,7 +200,8 @@ NetworkPolicy-only). Enforced by ztunnel at L4.
 - [ ] `authorization.enabled` (default true when `mesh` isn't `none`).
 - [ ] Unit tests for every row and the `fail` cases. e2e: a pod with the right labels but the
       wrong service account is refused by the mesh even though the NetworkPolicy lets it
-      through; test each layer with the other relaxed.
+      through; test each layer with the other relaxed. The three wrong-port denies accepted as
+      failing in phase 1 (see "Accepted failures" under 1c) must pass under `MESH=istio`.
 
 **Done when** e2e shows NetworkPolicy and AuthorizationPolicy each block traffic on their own.
 
@@ -196,13 +273,13 @@ exceptions:
       (identity `<sa>.<ns>.serviceaccount.identity.linkerd.<trustDomain>`) or
       `NetworkAuthentication` for `cidrs`; mTLS via `Server.spec.accessPolicy`
       (`all-authenticated`, or `all-unauthenticated` for excluded ports).
-- [ ] Cilium: `networkPolicy: cilium` renders `CiliumNetworkPolicy` instead of NetworkPolicy;
+- [ ] Cilium: `networkPolicy.provider: cilium` renders `CiliumNetworkPolicy` instead of NetworkPolicy;
       identity rules match `io.cilium.k8s.policy.serviceaccount`; strict mTLS requires Cilium
       mutual authentication, or `fail`s unless the values explicitly accept encryption-only.
 - [ ] Cilium as the gateway: Cilium's Gateway API traffic arrives from its shared Envoy with
       the reserved `ingress` identity, not from pods in a `gateway` namespace. When the
       cluster uses Cilium's gateway, the `ingress-gateway` source renders as
-      `fromEntities: [ingress]` (needs `networkPolicy: cilium`).
+      `fromEntities: [ingress]` (needs `networkPolicy.provider: cilium`).
 - [ ] Linkerd and Cilium `fail` on the `egress-gateway` destination with an explanation (it
       only exists for Istio's egress waypoint).
 - [ ] Golden files: one example, three meshes, reviewed side by side.

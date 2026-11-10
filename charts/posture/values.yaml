@@ -19,9 +19,13 @@ trustDomain: cluster.local
 #    Empty by default: only one posture release exists per namespace.
 namePrefix: ""
 
-# -- Deny all traffic not allowed by a rule below, per direction.
-#    Renders deny-all-ingress and deny-all-egress.
-defaultDeny:
+# -- NetworkPolicies per direction. Each enabled direction is default-deny (deny-all-ingress,
+#    deny-all-egress) plus the allows below. Turning a direction off renders NO NetworkPolicy
+#    for it: not the deny, not allowSameNamespace/allowDNS/probes, not your rules (they're
+#    still validated, and still used by other layers). Troubleshooting only.
+#    A direction can't be partly managed: any NetworkPolicy that selects a pod for a
+#    direction already denies everything else in that direction.
+networkPolicy:
   ingress: true
   egress: true
 
@@ -37,8 +41,11 @@ allowDNS: true
 #    ingress.<target>.sources. Predefined: monitoring (namespace prometheus, workload
 #    prometheus) and ingress-gateway (namespace gateway, every pod). Entries here override
 #    a predefined source field by field, or define a new one.
-#    An entry is either inside the cluster (namespace, workload, optional selector and
-#    serviceAccount) or outside it (cidrs), never both.
+#    An entry is either inside the cluster (namespace, plus workload with optional selector,
+#    or a raw podSelector; optional serviceAccount) or outside it (cidrs), never both.
+#    workload: any means every pod in the namespace; an omitted namespace means this one.
+#    Overriding a preset with cidrs drops its namespace and workload; overriding it with
+#    namespace, workload, or podSelector drops its cidrs. The same applies to destinations.
 sources: {}
 #  monitoring:
 #    namespace: observability       # override: namespace only, workload stays prometheus
@@ -53,7 +60,7 @@ sources: {}
 #    egress.<source>.destinations. A destination carries its own ports.
 #    Predefined (private ranges = 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16):
 #      dns             kube-system, k8s-app=kube-dns    53/UDP, 53/TCP
-#      kubeAPI         private ranges                   443, 6443
+#      kube-api        private ranges                   443, 6443
 #      postgres        private ranges                   5432
 #      redis           private ranges                   6379
 #      https           private ranges                   443

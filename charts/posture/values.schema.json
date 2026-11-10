@@ -22,8 +22,8 @@
       "type": "string",
       "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
     },
-    "defaultDeny": {
-      "description": "Deny all traffic not allowed by a rule, per direction.",
+    "networkPolicy": {
+      "description": "NetworkPolicies per direction; false renders none for that direction (troubleshooting only).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -47,32 +47,363 @@
       "description": "Overrides of predefined sources, and custom sources.",
       "type": "object",
       "propertyNames": {
-        "type": "string",
-        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        "$ref": "#/definitions/nameNotAny"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/source"
       }
     },
     "destinations": {
       "description": "Overrides of predefined destinations, and custom destinations.",
       "type": "object",
       "propertyNames": {
-        "type": "string",
-        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        "$ref": "#/definitions/nameNotAny"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/destination"
       }
     },
     "ingress": {
       "description": "Ingress rules, keyed by target workload.",
       "type": "object",
       "propertyNames": {
-        "type": "string",
-        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        "$ref": "#/definitions/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/ingressRule"
       }
     },
     "egress": {
       "description": "Egress rules, keyed by source workload.",
       "type": "object",
       "propertyNames": {
-        "type": "string",
-        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        "$ref": "#/definitions/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/egressRule"
+      }
+    },
+    "global": {
+      "description": "Helm's global values (set when this chart is a dependency); unused.",
+      "type": "object"
+    }
+  },
+  "definitions": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    },
+    "nameNotAny": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/name"
+        },
+        {
+          "not": {
+            "const": "any"
+          }
+        }
+      ]
+    },
+    "namespace": {
+      "description": "Omitted = this namespace; any = every namespace.",
+      "$ref": "#/definitions/name"
+    },
+    "selector": {
+      "type": "string",
+      "enum": [
+        "name",
+        "component",
+        "instance",
+        "app"
+      ]
+    },
+    "serviceAccount": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$",
+      "not": {
+        "const": "any"
+      }
+    },
+    "podSelector": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "portNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "port": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/portNumber"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "port"
+          ],
+          "properties": {
+            "port": {
+              "$ref": "#/definitions/portNumber"
+            },
+            "endPort": {
+              "$ref": "#/definitions/portNumber"
+            },
+            "protocol": {
+              "type": "string",
+              "enum": [
+                "TCP",
+                "UDP",
+                "SCTP"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ports": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/port"
+      }
+    },
+    "cidr": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/(3[0-2]|[12]?[0-9])$"
+        },
+        {
+          "pattern": "^[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,7}/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$"
+        }
+      ]
+    },
+    "cidrs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/cidr"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "cidr"
+            ],
+            "properties": {
+              "cidr": {
+                "$ref": "#/definitions/cidr"
+              },
+              "except": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/cidr"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "workloadPeer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ports"
+      ],
+      "properties": {
+        "namespace": {
+          "$ref": "#/definitions/namespace"
+        },
+        "selector": {
+          "$ref": "#/definitions/selector"
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
+        },
+        "ports": {
+          "$ref": "#/definitions/ports"
+        }
+      }
+    },
+    "cidrPeer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cidrs",
+        "ports"
+      ],
+      "properties": {
+        "cidrs": {
+          "$ref": "#/definitions/cidrs"
+        },
+        "ports": {
+          "$ref": "#/definitions/ports"
+        }
+      }
+    },
+    "anyPeer": {
+      "description": "Every pod (in the namespace given). No selector or serviceAccount.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ports"
+      ],
+      "properties": {
+        "namespace": {
+          "$ref": "#/definitions/namespace"
+        },
+        "ports": {
+          "$ref": "#/definitions/ports"
+        }
+      }
+    },
+    "peers": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/definitions/name"
+      },
+      "properties": {
+        "any": {
+          "$ref": "#/definitions/anyPeer"
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/workloadPeer"
+          },
+          {
+            "$ref": "#/definitions/cidrPeer"
+          }
+        ]
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "$ref": "#/definitions/namespace"
+        },
+        "workload": {
+          "description": "Workload name; any = every pod.",
+          "$ref": "#/definitions/name"
+        },
+        "selector": {
+          "$ref": "#/definitions/selector"
+        },
+        "podSelector": {
+          "$ref": "#/definitions/podSelector"
+        },
+        "cidrs": {
+          "$ref": "#/definitions/cidrs"
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
+        }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "$ref": "#/definitions/namespace"
+        },
+        "workload": {
+          "description": "Workload name; any = every pod.",
+          "$ref": "#/definitions/name"
+        },
+        "selector": {
+          "$ref": "#/definitions/selector"
+        },
+        "podSelector": {
+          "$ref": "#/definitions/podSelector"
+        },
+        "cidrs": {
+          "$ref": "#/definitions/cidrs"
+        },
+        "ports": {
+          "$ref": "#/definitions/ports"
+        }
+      }
+    },
+    "ingressRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Needs at least one of from or sources.",
+      "anyOf": [
+        {
+          "required": [
+            "from"
+          ]
+        },
+        {
+          "required": [
+            "sources"
+          ]
+        }
+      ],
+      "properties": {
+        "selector": {
+          "$ref": "#/definitions/selector"
+        },
+        "from": {
+          "$ref": "#/definitions/peers"
+        },
+        "sources": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/nameNotAny"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/ports"
+          }
+        }
+      }
+    },
+    "egressRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Needs at least one of to or destinations.",
+      "anyOf": [
+        {
+          "required": [
+            "to"
+          ]
+        },
+        {
+          "required": [
+            "destinations"
+          ]
+        }
+      ],
+      "properties": {
+        "selector": {
+          "$ref": "#/definitions/selector"
+        },
+        "to": {
+          "$ref": "#/definitions/peers"
+        },
+        "destinations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/nameNotAny"
+          }
+        }
       }
     }
   }

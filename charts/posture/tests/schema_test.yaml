@@ -6,14 +6,14 @@ tests:
     set:
       namePrefix: team-a
       sources:
-        backup-agent: {}
+        backup-agent: { namespace: backup, workload: velero }
       destinations:
-        license-server: {}
+        license-server: { cidrs: [10.30.0.15/32], ports: [27000] }
       ingress:
-        grafana: {}
-        any: {}
+        grafana: { sources: { backup-agent: [3000] } }
+        any: { from: { any: { namespace: tooling, ports: [8080] } } }
       egress:
-        prometheus2: {}
+        prometheus2: { destinations: [license-server] }
     asserts:
       - notFailedTemplate: {}
 
@@ -32,9 +32,9 @@ tests:
       - failedTemplate:
           errorPattern: "mesh"
 
-  - it: rejects a misspelled defaultDeny direction
+  - it: rejects a misspelled networkPolicy direction
     set:
-      defaultDeny:
+      networkPolicy:
         ingres: false
     asserts:
       - failedTemplate:
@@ -64,7 +64,7 @@ tests:
   - it: rejects an uppercase key in ingress
     set:
       ingress:
-        Grafana: {}
+        Grafana: { sources: { monitoring: [3000] } }
     asserts:
       - failedTemplate:
           errorPattern: "Grafana"
@@ -72,7 +72,7 @@ tests:
   - it: rejects a key with an underscore in sources
     set:
       sources:
-        backup_agent: {}
+        backup_agent: { cidrs: [10.0.0.0/8] }
     asserts:
       - failedTemplate:
           errorPattern: "backup_agent"
@@ -80,7 +80,7 @@ tests:
   - it: rejects a key ending in a hyphen in destinations
     set:
       destinations:
-        vault-: {}
+        vault-: { cidrs: [10.0.0.0/8], ports: [8200] }
     asserts:
       - failedTemplate:
           errorPattern: "vault-"
@@ -88,7 +88,166 @@ tests:
   - it: rejects a key with a dot in egress
     set:
       egress:
-        grafana.v2: {}
+        grafana.v2: { destinations: [dns] }
     asserts:
       - failedTemplate:
           errorPattern: "grafana.v2"
+
+  # Ports
+  - it: rejects a named port
+    set:
+      ingress.grafana.from.renderer: { ports: [http] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a named port in a port object
+    set:
+      ingress.grafana.from.renderer: { ports: [{ port: http }] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an empty ports list
+    set:
+      ingress.grafana.from.renderer: { ports: [] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an entry without ports
+    set:
+      ingress.grafana.from.renderer: { namespace: x }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a sources reference without ports
+    set:
+      ingress.grafana.sources.monitoring: []
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects port 0 and port 65536
+    set:
+      ingress.grafana.from.renderer: { ports: [0, 65536] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown protocol
+    set:
+      ingress.grafana.from.renderer: { ports: [{ port: 53, protocol: ICMP }] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a misspelled ports key
+    set:
+      ingress.grafana.from.renderer: { port: [3000] }
+    asserts:
+      - failedTemplate: {}
+
+  # Selectors and any
+  - it: rejects an unknown selector
+    set:
+      ingress.grafana: { selector: label, from: { renderer: { ports: [3000] } } }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a selector on from.any
+    set:
+      ingress.grafana.from.any: { selector: instance, ports: [3000] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a serviceAccount on to.any
+    set:
+      egress.grafana.to.any: { serviceAccount: x, ports: [3000] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects serviceAccount any
+    set:
+      ingress.grafana.from.keycloak: { serviceAccount: any, ports: [3000] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects serviceAccount any on a source definition
+    set:
+      sources.monitoring: { serviceAccount: any }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects any as a source name
+    set:
+      sources.any: { namespace: x, workload: y }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects any as a sources reference
+    set:
+      ingress.grafana.sources.any: [3000]
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects any as a destinations reference
+    set:
+      egress.grafana.destinations: [any]
+    asserts:
+      - failedTemplate: {}
+
+  # Entry shapes
+  - it: rejects cidrs together with namespace in a from entry
+    set:
+      ingress.grafana.from.office: { cidrs: [10.0.0.0/8], namespace: x, ports: [3000] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a malformed CIDR
+    set:
+      ingress.grafana.from.office: { cidrs: [10.0.0.0], ports: [3000] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an out-of-range CIDR
+    set:
+      destinations.x: { cidrs: [10.0.0.256/8], ports: [1] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: accepts IPv6 CIDRs and except lists
+    set:
+      ingress.grafana.from.office: { cidrs: ["2001:db8::/32", { cidr: 10.0.0.0/8, except: [10.1.0.0/16] }], ports: [3000] }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects an ingress rule with neither from nor sources
+    set:
+      ingress.grafana: { selector: app }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an empty from map
+    set:
+      ingress.grafana: { from: {} }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an egress rule with neither to nor destinations
+    set:
+      egress.grafana: { selector: app }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects ports on a source definition
+    set:
+      sources.monitoring: { ports: [9090] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an empty podSelector
+    set:
+      sources.monitoring: { podSelector: {} }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects requiresMesh in user values
+    set:
+      destinations.egress-gateway: { requiresMesh: { mesh: none } }
+    asserts:
+      - failedTemplate: {}

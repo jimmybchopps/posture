@@ -1,0 +1,5 @@
+{{- /*
+Builds the model on every render so invalid values fail the install, whichever renderers
+are enabled. Renders nothing.
+*/ -}}
+{{- $_ := include "posture.model" . -}}

@@ -1,0 +1,17 @@
+# Values for the "grafana" namespace: Grafana is reached through the ingress gateway and
+# scraped by Prometheus, and talks to Postgres and SSO outside the cluster.
+#
+# The presets used here, with their defaults:
+#   ingress-gateway  every pod in namespace "gateway"
+#   monitoring       workload "prometheus" in namespace "prometheus"
+#   postgres         private ranges, 5432
+#   sso              private ranges, 443 and 8443
+ingress:
+  grafana:
+    sources:
+      ingress-gateway: [3000]
+      monitoring: [3000]
+
+egress:
+  grafana:
+    destinations: [postgres, sso]

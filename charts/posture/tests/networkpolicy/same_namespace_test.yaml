@@ -1,0 +1,51 @@
+suite: networkpolicy same namespace
+templates:
+  - templates/networkpolicy/same-namespace.yaml
+tests:
+  - it: allows all traffic within the namespace, both directions
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-same-namespace }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: allowSameNamespace }
+      - equal:
+          path: spec
+          value:
+            podSelector: {}
+            policyTypes: [Ingress, Egress]
+            ingress: [{ from: [{ podSelector: {} }] }]
+            egress: [{ to: [{ podSelector: {} }] }]
+
+  - it: lists no ports, and doesn't get 15008 with istio
+    set:
+      mesh: istio
+    asserts:
+      - notExists: { path: spec.ingress[0].ports }
+      - notExists: { path: spec.egress[0].ports }
+
+  - it: allowSameNamespace false renders nothing
+    set:
+      allowSameNamespace: false
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: ingress off keeps only egress
+    set:
+      networkPolicy.ingress: false
+    asserts:
+      - equal: { path: spec.policyTypes, value: [Egress] }
+      - notExists: { path: spec.ingress }
+      - exists: { path: spec.egress }
+
+  - it: egress off keeps only ingress
+    set:
+      networkPolicy.egress: false
+    asserts:
+      - equal: { path: spec.policyTypes, value: [Ingress] }
+      - exists: { path: spec.ingress }
+      - notExists: { path: spec.egress }
+
+  - it: both directions off renders nothing
+    set:
+      networkPolicy: { ingress: false, egress: false }
+    asserts:
+      - hasDocuments: { count: 0 }

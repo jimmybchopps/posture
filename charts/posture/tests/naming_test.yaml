@@ -1,0 +1,127 @@
+suite: naming (every row of the CLAUDE.md naming tables, and name stability)
+templates:
+  - templates/networkpolicy/rules.yaml
+set:
+  allowDNS: false
+tests:
+  # Rule rows
+  - it: ingress.grafana.from.prometheus
+    set:
+      ingress.grafana.from.prometheus: { namespace: prometheus, ports: [3000] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-ingress-from-prometheus-to-grafana }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.grafana.from.prometheus }
+
+  - it: ingress.grafana.sources.monitoring
+    set:
+      ingress.grafana.sources.monitoring: [3000]
+    asserts:
+      - equal: { path: metadata.name, value: allow-ingress-from-monitoring-to-grafana }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.grafana.sources.monitoring }
+
+  - it: ingress.grafana.from.any + namespace tooling
+    set:
+      ingress.grafana.from.any: { namespace: tooling, ports: [3000] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-ingress-from-all-in-tooling-to-grafana }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.grafana.from.any }
+
+  - it: ingress.grafana.from.any + namespace any
+    set:
+      ingress.grafana.from.any: { namespace: any, ports: [3000] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-ingress-from-all-namespaces-to-grafana }
+
+  - it: ingress.grafana.from.any, namespace omitted
+    set:
+      ingress.grafana.from.any: { ports: [3000] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-ingress-from-all-to-grafana }
+
+  - it: ingress.any.from.prometheus
+    set:
+      ingress.any.from.prometheus: { namespace: prometheus, ports: [9090] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-ingress-from-prometheus-to-all }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.any.from.prometheus }
+
+  - it: egress.grafana.to.keycloak
+    set:
+      egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-egress-from-grafana-to-keycloak }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: egress.grafana.to.keycloak }
+
+  - it: egress.grafana.destinations [postgres]
+    set:
+      egress.grafana.destinations: [postgres]
+    asserts:
+      - equal: { path: metadata.name, value: allow-egress-from-grafana-to-postgres }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: egress.grafana.destinations.postgres }
+
+  - it: egress.prometheus.to.any + namespace any
+    set:
+      egress.prometheus.to.any: { namespace: any, ports: [9090] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-egress-from-prometheus-to-all-namespaces }
+
+  - it: egress.any.destinations [https]
+    set:
+      egress.any.destinations: [https]
+    asserts:
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-https }
+
+  # Fixed rows
+  - it: allowDNS
+    set:
+      allowDNS: true
+    asserts:
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-dns }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: allowDNS }
+
+  # Stability: adding or removing other keys never renames an existing object
+  - it: a rule keeps its name when other entries, rules, and toggles are added around it
+    set:
+      allowDNS: true
+      mesh: istio
+      sources.backup-agent: { namespace: backup, workload: velero }
+      ingress.alertmanager.from.prometheus: { namespace: prometheus, ports: [9093] }
+      ingress.grafana:
+        from:
+          aaa-first: { ports: [1] }
+          keycloak: { namespace: keycloak, ports: [3000] }
+          zzz-last: { namespace: zzz, ports: [2] }
+          any: { namespace: tooling, ports: [3] }
+        sources:
+          backup-agent: [3000]
+          monitoring: [3000]
+      ingress.zzz.from.keycloak: { namespace: keycloak, ports: [9] }
+      egress.grafana.destinations: [postgres, sso]
+    documentSelector: { path: metadata.name, value: allow-ingress-from-keycloak-to-grafana }
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.grafana.from.keycloak }
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels
+          value: { kubernetes.io/metadata.name: keycloak }
+
+  - it: the same rule alone has the same name
+    set:
+      ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-ingress-from-keycloak-to-grafana }
+
+  - it: a destination keeps its name when the list is reordered or extended
+    set:
+      egress.grafana.destinations: [sso, https, postgres, redis]
+    documentSelector: { path: metadata.name, value: allow-egress-from-grafana-to-postgres }
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: egress.grafana.destinations.postgres }
+
+  - it: namePrefix changes every name the same way, and nothing else
+    set:
+      namePrefix: team-a
+      ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
+    asserts:
+      - equal: { path: metadata.name, value: team-a-allow-ingress-from-keycloak-to-grafana }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.grafana.from.keycloak }

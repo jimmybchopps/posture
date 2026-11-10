@@ -1,0 +1,126 @@
+suite: model peers and targets
+templates:
+  - templates/model.yaml
+tests:
+  - it: workload, namespace omitted
+    set:
+      posture.ingress.grafana.from.renderer: { ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: rule, value: ingress.grafana.from.renderer }
+      - equal: { path: direction, value: ingress }
+      - equal: { path: target, value: { key: grafana, labels: { app.kubernetes.io/name: grafana } } }
+      - equal:
+          path: peer
+          value:
+            key: renderer
+            inCluster: true
+            labels: { app.kubernetes.io/name: renderer }
+            namespace: { scope: same, name: "" }
+            serviceAccount: ""
+
+  - it: workload with namespace X and a serviceAccount
+    set:
+      posture.ingress.grafana.from.keycloak: { namespace: keycloak, serviceAccount: kc, ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-keycloak-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: keycloak } }
+      - equal: { path: peer.namespace, value: { scope: named, name: keycloak } }
+      - equal: { path: peer.serviceAccount, value: kc }
+
+  - it: workload with namespace any
+    set:
+      posture.ingress.grafana.from.prometheus: { namespace: any, ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-prometheus-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: prometheus } }
+      - equal: { path: peer.namespace, value: { scope: all, name: "" } }
+
+  - it: any, namespace omitted, is every pod in this namespace
+    set:
+      posture.ingress.grafana.from.any: { ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-all-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: {} }
+      - equal: { path: peer.namespace, value: { scope: same, name: "" } }
+
+  - it: any with namespace X is every pod in X
+    set:
+      posture.ingress.grafana.from.any: { namespace: tooling, ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-all-in-tooling-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: {} }
+      - equal: { path: peer.namespace, value: { scope: named, name: tooling } }
+
+  - it: any with namespace any is every pod in every namespace
+    set:
+      posture.ingress.grafana.from.any: { namespace: any, ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-all-namespaces-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: {} }
+      - equal: { path: peer.namespace, value: { scope: all, name: "" } }
+
+  - it: a cidrs entry in from is outside the cluster
+    set:
+      posture.ingress.grafana.from.office: { cidrs: [10.50.0.0/16, { cidr: 10.60.0.0/16, except: [10.60.1.0/24] }], ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-office-to-grafana }
+    asserts:
+      - equal:
+          path: peer
+          value:
+            key: office
+            inCluster: false
+            cidrs:
+              - { cidr: 10.50.0.0/16, except: [] }
+              - { cidr: 10.60.0.0/16, except: [10.60.1.0/24] }
+
+  - it: ingress.any targets every pod in this namespace
+    set:
+      posture.ingress.any.from.prometheus: { namespace: prometheus, ports: [9090] }
+    documentSelector: { path: name, value: allow-ingress-from-prometheus-to-all }
+    asserts:
+      - equal: { path: target, value: { key: any, labels: {} } }
+
+  - it: egress to entries name the rule's workload as the source
+    set:
+      posture.egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080] }
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-keycloak }
+    asserts:
+      - equal: { path: rule, value: egress.grafana.to.keycloak }
+      - equal: { path: direction, value: egress }
+      - equal: { path: target, value: { key: grafana, labels: { app.kubernetes.io/name: grafana } } }
+      - equal: { path: peer.namespace, value: { scope: named, name: keycloak } }
+
+  - it: egress.any to any in every namespace
+    set:
+      posture.egress.any.to.any: { namespace: any, ports: [443] }
+    documentSelector: { path: name, value: allow-egress-from-all-to-all-namespaces }
+    asserts:
+      - equal: { path: target, value: { key: any, labels: {} } }
+      - equal: { path: peer.namespace, value: { scope: all, name: "" } }
+
+  - it: egress to any, namespace omitted
+    set:
+      posture.egress.prometheus.to.any: { ports: [9090] }
+    documentSelector: { path: name, value: allow-egress-from-prometheus-to-all }
+    asserts:
+      - equal: { path: peer.namespace, value: { scope: same, name: "" } }
+
+  - it: a sources reference takes its peer from the definition and its ports from the reference
+    set:
+      posture.ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: rule, value: ingress.grafana.sources.monitoring }
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: prometheus } }
+      - equal: { path: peer.namespace, value: { scope: named, name: prometheus } }
+      - equal: { path: ports, value: [{ port: 3000, protocol: TCP }] }
+
+  - it: a destinations reference takes ports from the definition
+    set:
+      posture.egress.grafana.destinations: [sso]
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-sso }
+    asserts:
+      - equal: { path: rule, value: egress.grafana.destinations.sso }
+      - equal: { path: peer.inCluster, value: false }
+      - equal: { path: ports, value: [{ port: 443, protocol: TCP }, { port: 8443, protocol: TCP }] }

@@ -1,0 +1,9 @@
+# Values for the "prometheus" namespace: Prometheus scrapes every pod in every namespace on
+# the listed metrics ports. The targets' own posture releases still decide whether they
+# accept the scrape (the "monitoring" source).
+egress:
+  prometheus:
+    to:
+      any:
+        namespace: any          # every pod in every namespace
+        ports: [3000, 8080, 9090, 9100, { port: 9400, endPort: 9499 }]

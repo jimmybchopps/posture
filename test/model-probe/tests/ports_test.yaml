@@ -1,0 +1,54 @@
+suite: model ports
+templates:
+  - templates/model.yaml
+tests:
+  - it: a number is TCP
+    set:
+      posture.ingress.grafana.from.renderer: { ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: ports, value: [{ port: 3000, protocol: TCP }] }
+
+  - it: a port object without protocol is TCP
+    set:
+      posture.ingress.grafana.from.renderer: { ports: [{ port: 3000 }] }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: ports, value: [{ port: 3000, protocol: TCP }] }
+
+  - it: protocol UDP and SCTP
+    set:
+      posture.ingress.grafana.from.renderer: { ports: [{ port: 53, protocol: UDP }, { port: 9999, protocol: SCTP }] }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: ports, value: [{ port: 53, protocol: UDP }, { port: 9999, protocol: SCTP }] }
+
+  - it: a range with endPort
+    set:
+      posture.ingress.grafana.from.renderer: { ports: [{ port: 32000, endPort: 32768 }] }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: ports, value: [{ port: 32000, endPort: 32768, protocol: TCP }] }
+
+  - it: endPort equal to port is allowed
+    set:
+      posture.ingress.grafana.from.renderer: { ports: [{ port: 8080, endPort: 8080 }] }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: ports, value: [{ port: 8080, endPort: 8080, protocol: TCP }] }
+
+  - it: exact duplicates are dropped, order is kept
+    set:
+      posture.ingress.grafana.from.renderer: { ports: [9090, 3000, { port: 3000, protocol: TCP }, { port: 3000, protocol: UDP }] }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal:
+          path: ports
+          value: [{ port: 9090, protocol: TCP }, { port: 3000, protocol: TCP }, { port: 3000, protocol: UDP }]
+
+  - it: ports from a values file (parsed as floats) come out as integers
+    values:
+      - ../values/ports.yaml
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: ports, value: [{ port: 3000, protocol: TCP }, { port: 9400, endPort: 9499, protocol: TCP }] }

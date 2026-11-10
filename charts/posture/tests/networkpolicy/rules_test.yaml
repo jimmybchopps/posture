@@ -1,0 +1,206 @@
+suite: networkpolicy rules
+templates:
+  - templates/networkpolicy/rules.yaml
+set:
+  allowDNS: false
+tests:
+  # Peer translation (CLAUDE.md, "Peer translation")
+  - it: workload, namespace omitted -> podSelector only
+    set:
+      ingress.grafana.from.renderer: { ports: [3000] }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.grafana.from.renderer }
+      - equal:
+          path: spec
+          value:
+            podSelector: { matchLabels: { app.kubernetes.io/name: grafana } }
+            policyTypes: [Ingress]
+            ingress:
+              - from: [{ podSelector: { matchLabels: { app.kubernetes.io/name: renderer } } }]
+                ports: [{ port: 3000, protocol: TCP }]
+
+  - it: workload + namespace X -> podSelector + namespaceSelector on the namespace name
+    set:
+      ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - podSelector: { matchLabels: { app.kubernetes.io/name: keycloak } }
+              namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: keycloak } }
+
+  - it: workload + namespace any -> podSelector + namespaceSelector {}
+    set:
+      ingress.grafana.from.prometheus: { namespace: any, ports: [3000] }
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value: [{ podSelector: { matchLabels: { app.kubernetes.io/name: prometheus } }, namespaceSelector: {} }]
+
+  - it: any, namespace omitted -> podSelector {}
+    set:
+      ingress.grafana.from.any: { ports: [3000] }
+    asserts:
+      - equal: { path: spec.ingress[0].from, value: [{ podSelector: {} }] }
+
+  - it: any + namespace X -> namespaceSelector only
+    set:
+      ingress.grafana.from.any: { namespace: tooling, ports: [3000] }
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: tooling } } }]
+
+  - it: any + namespace any -> namespaceSelector {}
+    set:
+      ingress.grafana.from.any: { namespace: any, ports: [3000] }
+    asserts:
+      - equal: { path: spec.ingress[0].from, value: [{ namespaceSelector: {} }] }
+
+  - it: cidrs -> one ipBlock per CIDR, except only when set
+    set:
+      ingress.grafana.from.office: { cidrs: [10.50.0.0/16, { cidr: 10.60.0.0/16, except: [10.60.1.0/24] }], ports: [3000] }
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - ipBlock: { cidr: 10.50.0.0/16 }
+            - ipBlock: { cidr: 10.60.0.0/16, except: [10.60.1.0/24] }
+
+  - it: a raw podSelector from a destination definition
+    set:
+      egress.grafana.destinations: [dns]
+    asserts:
+      - equal:
+          path: spec.egress[0].to
+          value:
+            - podSelector: { matchLabels: { k8s-app: kube-dns } }
+              namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+
+  - it: ingress.any targets every pod
+    set:
+      ingress.any.from.any: { namespace: tooling, ports: [8080] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-ingress-from-all-in-tooling-to-all }
+      - equal: { path: spec.podSelector, value: {} }
+
+  - it: egress rules use egress, to, and policyTypes Egress
+    set:
+      egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080] }
+    asserts:
+      - equal: { path: metadata.name, value: allow-egress-from-grafana-to-keycloak }
+      - equal:
+          path: spec
+          value:
+            podSelector: { matchLabels: { app.kubernetes.io/name: grafana } }
+            policyTypes: [Egress]
+            egress:
+              - to:
+                  - podSelector: { matchLabels: { app.kubernetes.io/name: keycloak } }
+                    namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: keycloak } }
+                ports: [{ port: 8080, protocol: TCP }]
+
+  # Ports
+  - it: renders every port form, as integers
+    set:
+      ingress.grafana.from.renderer: { ports: [3000, { port: 53, protocol: UDP }, { port: 9400, endPort: 9499 }] }
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value: [{ port: 3000, protocol: TCP }, { port: 53, protocol: UDP }, { port: 9400, endPort: 9499, protocol: TCP }]
+
+  - it: ports from a values file come out as integers
+    values:
+      - ../values/ports.yaml
+    asserts:
+      - equal: { path: spec.ingress[0].ports[0].port, value: 3000 }
+      - equal: { path: spec.ingress[0].ports[1].endPort, value: 9499 }
+
+  # Istio ambient: 15008
+  - it: istio adds TCP 15008 to in-cluster ingress rules
+    set:
+      mesh: istio
+      ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
+    asserts:
+      - equal: { path: spec.ingress[0].ports, value: [{ port: 3000, protocol: TCP }, { port: 15008, protocol: TCP }] }
+
+  - it: istio adds TCP 15008 to in-cluster egress rules
+    set:
+      mesh: istio
+      egress.grafana.destinations: [vault]
+      destinations.vault: { namespace: vault, workload: vault, ports: [8200] }
+    asserts:
+      - equal: { path: spec.egress[0].ports, value: [{ port: 8200, protocol: TCP }, { port: 15008, protocol: TCP }] }
+
+  - it: istio doesn't add 15008 to cidrs rules
+    set:
+      mesh: istio
+      egress.grafana.destinations: [postgres]
+    asserts:
+      - equal: { path: spec.egress[0].ports, value: [{ port: 5432, protocol: TCP }] }
+
+  - it: istio doesn't duplicate 15008 already listed (egress-gateway)
+    set:
+      mesh: istio
+      egress.grafana.destinations: [egress-gateway]
+    asserts:
+      - equal: { path: spec.egress[0].ports, value: [{ port: 15008, protocol: TCP }] }
+
+  - it: istio still adds TCP 15008 next to UDP 15008
+    set:
+      mesh: istio
+      ingress.grafana.from.renderer: { ports: [{ port: 15008, protocol: UDP }] }
+    asserts:
+      - equal: { path: spec.ingress[0].ports, value: [{ port: 15008, protocol: UDP }, { port: 15008, protocol: TCP }] }
+
+  - it: mesh none never adds 15008
+    set:
+      ingress.grafana.from.keycloak: { namespace: keycloak, ports: [3000] }
+    asserts:
+      - equal: { path: spec.ingress[0].ports, value: [{ port: 3000, protocol: TCP }] }
+
+  # Directions and DNS
+  - it: allowDNS renders as an egress rule from every pod
+    set:
+      allowDNS: true
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-dns }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: allowDNS }
+      - equal: { path: spec.podSelector, value: {} }
+
+  - it: ingress off skips ingress rules but keeps egress rules
+    set:
+      networkPolicy.ingress: false
+      ingress.grafana.from.renderer: { ports: [3000] }
+      egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080] }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-egress-from-grafana-to-keycloak }
+
+  - it: egress off skips egress rules and allowDNS
+    set:
+      allowDNS: true
+      networkPolicy.egress: false
+      ingress.grafana.from.renderer: { ports: [3000] }
+      egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080] }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+
+  - it: a disabled direction still validates its rules
+    set:
+      networkPolicy.egress: false
+      egress.grafana.destinations: [postgress]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'unknown destination "postgress"'
+
+  - it: namePrefix applies to rule objects
+    set:
+      namePrefix: team-a
+      ingress.grafana.from.renderer: { ports: [3000] }
+    asserts:
+      - equal: { path: metadata.name, value: team-a-allow-ingress-from-renderer-to-grafana }

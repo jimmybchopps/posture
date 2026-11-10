@@ -1,0 +1,20 @@
+{{- /*
+allow-same-namespace: all traffic between pods in this namespace, on every port, for each
+enabled direction.
+*/ -}}
+{{- $model := include "posture.model" . | fromJson -}}
+{{- with $model.fixed.sameNamespace -}}
+{{- $spec := dict "podSelector" (dict) "policyTypes" (list) -}}
+{{- if $model.networkPolicy.ingress -}}
+  {{- $_ := set $spec "policyTypes" (append $spec.policyTypes "Ingress") -}}
+  {{- $_ := set $spec "ingress" (list (dict "from" (list (dict "podSelector" (dict))))) -}}
+{{- end -}}
+{{- if $model.networkPolicy.egress -}}
+  {{- $_ := set $spec "policyTypes" (append $spec.policyTypes "Egress") -}}
+  {{- $_ := set $spec "egress" (list (dict "to" (list (dict "podSelector" (dict))))) -}}
+{{- end -}}
+{{- if $spec.policyTypes }}
+---
+{{ include "posture.np.object" (dict "root" $ "name" .name "rule" .rule "spec" $spec) }}
+{{- end -}}
+{{- end -}}

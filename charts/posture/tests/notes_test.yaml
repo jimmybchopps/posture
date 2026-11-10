@@ -1,0 +1,57 @@
+suite: NOTES.txt
+templates:
+  - templates/NOTES.txt
+release:
+  namespace: team
+tests:
+  - it: no warnings by default
+    asserts:
+      - matchRegexRaw: { pattern: "installed in namespace team \\(mesh: none\\)" }
+      - notMatchRegexRaw: { pattern: WARNING }
+
+  - it: warns when ingress is disabled
+    set:
+      networkPolicy.ingress: false
+    asserts:
+      - matchRegexRaw: { pattern: "WARNING: NetworkPolicy ingress is DISABLED \\(networkPolicy.ingress: false\\)" }
+      - notMatchRegexRaw: { pattern: "NetworkPolicy egress is DISABLED" }
+
+  - it: warns when egress is disabled
+    set:
+      networkPolicy.egress: false
+    asserts:
+      - matchRegexRaw: { pattern: "WARNING: NetworkPolicy egress is DISABLED" }
+
+  - it: warns on a named workload in every namespace without a serviceAccount
+    set:
+      ingress.grafana.from.prometheus: { namespace: any, ports: [3000] }
+      egress.grafana.to.exporter: { namespace: any, ports: [9100] }
+    asserts:
+      - matchRegexRaw: { pattern: "without a\\s+serviceAccount" }
+      - matchRegexRaw: { pattern: "- ingress.grafana.from.prometheus\\n" }
+      - matchRegexRaw: { pattern: "- egress.grafana.to.exporter\\n" }
+
+  - it: warns on a custom source in every namespace without a serviceAccount
+    set:
+      sources.agents: { namespace: any, workload: agent }
+      ingress.grafana.sources.agents: [3000]
+    asserts:
+      - matchRegexRaw: { pattern: "- ingress.grafana.sources.agents\\n" }
+
+  - it: no label warning with a serviceAccount
+    set:
+      ingress.grafana.from.prometheus: { namespace: any, serviceAccount: prometheus, ports: [3000] }
+    asserts:
+      - notMatchRegexRaw: { pattern: WARNING }
+
+  - it: no label warning for any in every namespace (no label is trusted)
+    set:
+      ingress.grafana.from.any: { namespace: any, ports: [3000] }
+    asserts:
+      - notMatchRegexRaw: { pattern: WARNING }
+
+  - it: no label warning for a named namespace
+    set:
+      ingress.grafana.from.prometheus: { namespace: prometheus, ports: [3000] }
+    asserts:
+      - notMatchRegexRaw: { pattern: WARNING }

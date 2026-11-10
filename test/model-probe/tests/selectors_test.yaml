@@ -1,0 +1,68 @@
+suite: model selectors
+templates:
+  - templates/model.yaml
+tests:
+  - it: name is the default (app.kubernetes.io/name)
+    set:
+      posture.ingress.grafana.from.renderer: { ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: target.labels, value: { app.kubernetes.io/name: grafana } }
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: renderer } }
+
+  - it: component
+    set:
+      posture.ingress.grafana: { selector: component, from: { renderer: { ports: [3000] } } }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: target.labels, value: { app.kubernetes.io/component: grafana } }
+      - equal: { path: peer.labels, value: { app.kubernetes.io/component: renderer } }
+
+  - it: instance
+    set:
+      posture.ingress.grafana: { selector: instance, from: { renderer: { ports: [3000] } } }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: target.labels, value: { app.kubernetes.io/instance: grafana } }
+
+  - it: app
+    set:
+      posture.ingress.grafana: { selector: app, from: { renderer: { ports: [3000] } } }
+    documentSelector: { path: name, value: allow-ingress-from-renderer-to-grafana }
+    asserts:
+      - equal: { path: target.labels, value: { app: grafana } }
+
+  - it: the entry selector beats the rule selector, which still applies to the target
+    set:
+      posture.ingress.grafana:
+        selector: component
+        from:
+          keycloak: { selector: instance, namespace: keycloak, ports: [3000] }
+    documentSelector: { path: name, value: allow-ingress-from-keycloak-to-grafana }
+    asserts:
+      - equal: { path: target.labels, value: { app.kubernetes.io/component: grafana } }
+      - equal: { path: peer.labels, value: { app.kubernetes.io/instance: keycloak } }
+
+  - it: the rule selector applies to egress targets and to entries
+    set:
+      posture.egress.grafana: { selector: app, to: { keycloak: { namespace: keycloak, ports: [8080] } } }
+    documentSelector: { path: name, value: allow-egress-from-grafana-to-keycloak }
+    asserts:
+      - equal: { path: target.labels, value: { app: grafana } }
+      - equal: { path: peer.labels, value: { app: keycloak } }
+
+  - it: the rule selector doesn't apply to sources, which keep their own
+    set:
+      posture.ingress.grafana: { selector: app, sources: { monitoring: [3000] } }
+    documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: target.labels, value: { app: grafana } }
+      - equal: { path: peer.labels, value: { app.kubernetes.io/name: prometheus } }
+
+  - it: a source definition's selector is used for its workload
+    set:
+      posture.sources.monitoring: { selector: instance }
+      posture.ingress.grafana.sources.monitoring: [3000]
+    documentSelector: { path: name, value: allow-ingress-from-monitoring-to-grafana }
+    asserts:
+      - equal: { path: peer.labels, value: { app.kubernetes.io/instance: prometheus } }

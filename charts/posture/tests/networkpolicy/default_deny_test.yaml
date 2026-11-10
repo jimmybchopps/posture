@@ -1,0 +1,35 @@
+suite: networkpolicy default deny
+templates:
+  - templates/networkpolicy/default-deny.yaml
+tests:
+  - it: renders one deny per direction
+    asserts:
+      - hasDocuments: { count: 2 }
+      - equal: { path: spec, value: { podSelector: {}, policyTypes: [Ingress] } }
+        documentSelector: { path: metadata.name, value: deny-all-ingress }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: networkPolicy.ingress }
+        documentSelector: { path: metadata.name, value: deny-all-ingress }
+      - equal: { path: spec, value: { podSelector: {}, policyTypes: [Egress] } }
+        documentSelector: { path: metadata.name, value: deny-all-egress }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: networkPolicy.egress }
+        documentSelector: { path: metadata.name, value: deny-all-egress }
+
+  - it: ingress off drops deny-all-ingress
+    set:
+      networkPolicy.ingress: false
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: deny-all-egress }
+
+  - it: egress off drops deny-all-egress
+    set:
+      networkPolicy.egress: false
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: deny-all-ingress }
+
+  - it: both off renders nothing
+    set:
+      networkPolicy: { ingress: false, egress: false }
+    asserts:
+      - hasDocuments: { count: 0 }

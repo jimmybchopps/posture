@@ -1,0 +1,24 @@
+{{- /*
+One NetworkPolicy per model rule (each target and peer pair), for enabled directions only.
+This includes allowDNS, which is an ordinary rule in the model.
+*/ -}}
+{{- $model := include "posture.model" . | fromJson -}}
+{{- range $rule := $model.rules -}}
+{{- if get $model.networkPolicy $rule.direction -}}
+  {{- $peersOut := dict -}}
+  {{- $_ := include "posture.np.peers" (dict "peer" $rule.peer "out" $peersOut) -}}
+  {{- $portsOut := dict -}}
+  {{- $_ := include "posture.np.ports" (dict "mesh" $model.mesh "rule" $rule "out" $portsOut) -}}
+  {{- $podSelector := dict -}}
+  {{- if $rule.target.labels -}}
+    {{- $podSelector = dict "matchLabels" $rule.target.labels -}}
+  {{- end -}}
+  {{- $isIngress := eq $rule.direction "ingress" -}}
+  {{- $spec := dict
+    "podSelector" $podSelector
+    "policyTypes" (list (title $rule.direction))
+    $rule.direction (list (dict (ternary "from" "to" $isIngress) $peersOut.peers "ports" $portsOut.ports)) }}
+---
+{{ include "posture.np.object" (dict "root" $ "name" $rule.name "rule" $rule.rule "spec" $spec) }}
+{{- end -}}
+{{- end -}}

@@ -1,0 +1,26 @@
+suite: naming of fixed objects (the CLAUDE.md fixed-objects table)
+templates:
+  - templates/networkpolicy/default-deny.yaml
+  - templates/networkpolicy/same-namespace.yaml
+  - templates/networkpolicy/ambient-probes.yaml
+tests:
+  - it: default deny, one object per direction
+    asserts:
+      - equal: { path: metadata.name, value: deny-all-ingress }
+        template: templates/networkpolicy/default-deny.yaml
+        documentIndex: 0
+      - equal: { path: metadata.name, value: deny-all-egress }
+        template: templates/networkpolicy/default-deny.yaml
+        documentIndex: 1
+
+  - it: allowSameNamespace
+    asserts:
+      - equal: { path: metadata.name, value: allow-same-namespace }
+        template: templates/networkpolicy/same-namespace.yaml
+
+  - it: Istio ambient kubelet probes
+    set:
+      mesh: istio
+    asserts:
+      - equal: { path: metadata.name, value: allow-ingress-from-ambient-probes-to-all }
+        template: templates/networkpolicy/ambient-probes.yaml

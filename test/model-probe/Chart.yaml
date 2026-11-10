@@ -1,0 +1,11 @@
+apiVersion: v2
+name: model-probe
+description: >-
+  Test-only chart: renders posture's internal model as YAML so helm-unittest can assert on it
+  directly. Values for posture go under the `posture` key. Never published.
+type: application
+version: 0.0.0
+dependencies:
+  - name: posture
+    version: 0.1.0
+    repository: file://../../charts/posture

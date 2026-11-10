@@ -1,4 +1,29 @@
-posture {{ .Chart.Version }} is installed in namespace {{ .Release.Namespace }} (mesh: {{ .Values.mesh }}).
+{{- $model := include "posture.model" . | fromJson -}}
+posture {{ .Chart.Version }} is installed in namespace {{ .Release.Namespace }} (mesh: {{ $model.mesh }}).
+{{- range $direction := list "ingress" "egress" }}
+{{- if not (get $model.networkPolicy $direction) }}
+
+WARNING: NetworkPolicy {{ $direction }} is DISABLED (networkPolicy.{{ $direction }}: false).
+  No NetworkPolicy is rendered for {{ $direction }}: every {{ $direction }} connection is allowed.
+  Troubleshooting only; set it back to true when you're done.
+{{- end }}
+{{- end }}
+{{- $untrusted := list -}}
+{{- range $model.rules -}}
+  {{- if and .peer.inCluster (eq .peer.namespace.scope "all") .peer.labels (not .peer.serviceAccount) -}}
+    {{- $untrusted = append $untrusted .rule -}}
+  {{- end -}}
+{{- end -}}
+{{- if $untrusted }}
+
+WARNING: these rules match a workload label in every namespace (namespace: any) without a
+  serviceAccount. At the NetworkPolicy layer they trust a label that anyone who can create a
+  pod in any namespace can set. Name the namespace, or set serviceAccount so the mesh's
+  authorization layer checks the workload's identity:
+{{- range $untrusted }}
+  - {{ . }}
+{{- end }}
+{{- end }}
 
 See which objects it created, and the rule each one came from:
 
