@@ -18,6 +18,28 @@ Egress rules render nothing: authorization is enforced at the destination.
   "action" "ALLOW"
   "rules" (list (dict "from" (list (dict "source" (dict "namespaces" (list $model.namespace)))))))) }}
 {{- end -}}
+{{- /*
+Plaintext: wherever mTLS accepts it, admit clients without a mesh identity on those ports.
+The NetworkPolicies decide which plaintext peers get in: plaintext isn't HBONE, so they see
+its real port. Meshed clients still need the identity rules below.
+*/ -}}
+{{- range $model.mtls.exclusions -}}
+  {{- $ports := list -}}
+  {{- range .ports -}}{{- $ports = append $ports (toString (int .)) -}}{{- end }}
+---
+{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "spec" (dict
+  "action" "ALLOW"
+  "selector" (dict "matchLabels" .labels)
+  "rules" (list (dict
+    "from" (list (dict "source" (dict "notPrincipals" (list "*"))))
+    "to" (list (dict "operation" (dict "ports" $ports))))))) }}
+{{- end -}}
+{{- with $model.fixed.plaintextAll }}
+---
+{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "spec" (dict
+  "action" "ALLOW"
+  "rules" (list (dict "from" (list (dict "source" (dict "notPrincipals" (list "*")))))))) }}
+{{- end -}}
 {{- range $rule := $model.rules -}}
 {{- if eq $rule.direction "ingress" -}}
   {{- $portsOut := dict -}}

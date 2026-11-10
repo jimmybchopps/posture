@@ -60,7 +60,7 @@ export EXT_IP
 
 scenarios=("$@")
 if [[ ${#scenarios[@]} -eq 0 ]]; then
-  scenarios=(minimal strict grafana-prometheus identity identity-authz-only identity-netpol-only)
+  scenarios=(minimal strict grafana-prometheus identity identity-authz-only identity-netpol-only mtls-strict mtls-permissive)
 fi
 for s in "${scenarios[@]}"; do
   run_scenario "$s"

@@ -101,3 +101,93 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "posture: egress.grafana.destinations.range: endPort 8000"
+
+  # mTLS
+  - it: exclusions with mesh none fail
+    set:
+      mtls.exclusions.api: [8081]
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: mtls.exclusions.api: exclusions need a mesh to accept plaintext beside mTLS; mesh is none"
+
+  - it: exclusions with PERMISSIVE fail
+    set:
+      mesh: istio
+      mtls: { mode: PERMISSIVE, exclusions: { api: [8081] } }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: mtls.exclusions.api: exclusions only apply with mtls.mode STRICT; mode is PERMISSIVE \\(every port already accepts plaintext\\)"
+
+  - it: exclusions with inherit fail
+    set:
+      mesh: istio
+      mtls: { mode: inherit, exclusions: { api: [8081] } }
+    asserts:
+      - failedTemplate:
+          errorPattern: "mode is inherit \\(the chart isn't managing mTLS\\)"
+
+  - it: STRICT with a cidrs source on a port that isn't excluded fails
+    set:
+      mesh: istio
+      sources.office-vpn: { cidrs: [10.50.0.0/16] }
+      ingress.grafana.sources.office-vpn: [3000]
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana.sources.office-vpn: port 3000 is reached from outside the cluster \\(cidrs\\), which is never mTLS, but mtls.mode is STRICT; add it under mtls.exclusions.grafana, or use mtls.mode PERMISSIVE"
+
+  - it: STRICT with a cidrs source passes when its ports are excluded
+    set:
+      mesh: istio
+      sources.office-vpn: { cidrs: [10.50.0.0/16] }
+      ingress.grafana.sources.office-vpn: [3000, { port: 53, protocol: UDP }]
+      mtls.exclusions.grafana: [3000]
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a partly excluded range fails on the first port that isn't
+    set:
+      mesh: istio
+      ingress.grafana.from.vpn: { cidrs: [10.50.0.0/16], ports: [{ port: 3000, endPort: 3002 }] }
+      mtls.exclusions.grafana: [3000, 3001]
+    asserts:
+      - failedTemplate:
+          errorPattern: "ingress.grafana.from.vpn: port 3002 is reached from outside the cluster"
+
+  - it: the exclusion must select the rule's target (its selector counts)
+    set:
+      mesh: istio
+      ingress.grafana: { selector: instance, from: { vpn: { cidrs: [10.50.0.0/16], ports: [3000] } } }
+      mtls.exclusions.grafana: [3000]
+    asserts:
+      - failedTemplate:
+          errorPattern: "ingress.grafana.from.vpn: port 3000"
+
+  - it: an exclusion with the matching selector covers it
+    set:
+      mesh: istio
+      ingress.grafana: { selector: instance, from: { vpn: { cidrs: [10.50.0.0/16], ports: [3000] } } }
+      mtls.exclusions.grafana: { selector: instance, ports: [3000] }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: STRICT with a cidrs source into every pod fails, suggesting PERMISSIVE
+    set:
+      mesh: istio
+      ingress.any.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "the target is every pod \\(any\\), which exclusions can't name; use mtls.mode PERMISSIVE"
+
+  - it: PERMISSIVE and inherit accept cidrs sources as is
+    set:
+      mesh: istio
+      mtls.mode: PERMISSIVE
+      ingress.any.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000] }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: mesh none ignores mtls for cidrs sources
+    set:
+      ingress.any.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000] }
+    asserts:
+      - notFailedTemplate: {}

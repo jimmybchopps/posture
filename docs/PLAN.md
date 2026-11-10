@@ -248,59 +248,133 @@ Decisions made in phase 2:
 
 ```yaml
 mtls:
-  mode: STRICT              # STRICT | PERMISSIVE | inherit (render nothing)
-  exclusions:               # workload (or any) -> ports that also accept plaintext
+  mode: STRICT              # STRICT (default) | PERMISSIVE | inherit (render nothing)
+  exclusions:               # workload in this namespace -> ports that also accept plaintext
     grafana: [9090]
+    renderer: { selector: instance, ports: [8081] }
 ```
 
 Confirmed for Istio ambient: with the namespace at STRICT, a workload can set individual ports
 to PERMISSIVE; disabling mTLS (`DISABLE`) on a port isn't supported. The chart follows that
 everywhere:
 
-- [ ] Istio: a namespace PeerAuthentication `mtls-<mode>`; one workload PeerAuthentication per
-      exclusion, `allow-plaintext-to-<workload>` (`allow-plaintext-to-all` for `any`), with
-      `portLevelMtls` set to `PERMISSIVE` for the listed ports.
-- [ ] Exclusions are only valid with `mode: STRICT`; with `PERMISSIVE` or `inherit` they `fail`
+- [x] Istio: a namespace PeerAuthentication `mtls-<mode>`; one workload PeerAuthentication per
+      exclusion, `allow-plaintext-to-<workload>`, with `portLevelMtls` set to `PERMISSIVE` for
+      the listed ports. `exclusions.any` is rejected (see the decisions below).
+- [x] Exclusions are only valid with `mode: STRICT`; with `PERMISSIVE` or `inherit` they `fail`
       (every port already accepts plaintext, or the chart isn't managing mTLS).
-- [ ] There is no `DISABLE` anywhere: the schema rejects it as a mode, and exclusions always
+- [x] There is no `DISABLE` anywhere: the schema rejects it as a mode, and exclusions always
       mean PERMISSIVE (mTLS still used when the client offers it).
-- [ ] Unit tests; e2e: a client outside the mesh is refused on a strict port and connects on
-      an excluded one, while a meshed client still connects with mTLS on the excluded port.
+- [x] Authorization agrees with mTLS: wherever plaintext is accepted, an AuthorizationPolicy
+      admits clients without a mesh identity on those ports.
+- [x] Unit tests (`tests/istio/peerauthentication_test.yaml`, plaintext cases in the
+      authorization suite, model failures, schema, naming, NOTES, model-probe).
+- [x] e2e (`mtls-strict`, `mtls-permissive`): a client outside the mesh is refused on a strict
+      port and connects on an excluded one, while a meshed client still connects with mTLS on
+      the excluded port. Passed: every check under `MESH=none` and `MESH=istio` except the
+      known egress failure left for phase 5.
 
 **Done when** the e2e matrix passes for strict, permissive, and excluded ports.
+
+Decisions made in phase 3:
+
+- `mtls.mode` defaults to STRICT. With `mesh: none` the block is ignored, except that non-empty
+  exclusions `fail` (no mesh can provide them).
+- Plaintext and authorization: phase 2's authorization admits in-cluster clients by mesh
+  identity, which a plaintext client doesn't have. So wherever mTLS accepts plaintext,
+  authorization admits clients without an identity (`source.notPrincipals: ["*"]`): one
+  `allow-plaintext-to-<workload>` AuthorizationPolicy per exclusion on its ports (same name as
+  its PeerAuthentication), and under PERMISSIVE one namespace-wide `allow-plaintext-to-all`.
+  The NetworkPolicies decide which plaintext peers get in: plaintext isn't HBONE, so they see
+  its real port. Meshed clients still need their identity rules. Under `inherit` the chart
+  doesn't know the mesh-wide mode, so it adds no plaintext policy.
+- Under STRICT, an ingress rule whose source is `cidrs` (outside the cluster, never mTLS) must
+  have every TCP port covered by an exclusion selecting the same target; otherwise the render
+  fails, naming the rule and port. A `cidrs` source into target `any` can't be covered and
+  fails, suggesting PERMISSIVE. UDP ports are ignored (no mTLS on UDP).
+- `exclusions.any` is rejected by the schema: Istio applies `portLevelMtls` only to a
+  PeerAuthentication with a workload selector (one without a selector is the namespace-wide
+  policy), so "every pod, these ports" can't be expressed. Exclusions name the workloads that
+  need it. This is unrelated to `from.any`/`to.any` in traffic rules: a meshed scraper (for
+  example Prometheus checked by its service account) needs no exclusion at all.
+- Exclusion ports are plain numbers (no protocol, no range): `portLevelMtls` keys are single
+  TCP ports. An exclusion is a list, or `{ selector, ports }` to match another label.
+- e2e: `MESHED=0 namespace <name>` creates a namespace outside the mesh. Removing an exclusion
+  from an example on the command line takes `--set-json 'mtls.exclusions={}'`; `--set ...=null`
+  reaches schema validation as a literal null and fails.
 
 ---
 
 ## Phase 4: policy exceptions
 
-Exceptions to the cluster's admission policies, declared by the namespace that needs them.
-The policies live elsewhere (in Neutron Star, the core `policy` bundle); this chart renders
-the per-namespace exceptions object they read as parameters.
+Exceptions to the cluster's admission policies (native ValidatingAdmissionPolicy and
+MutatingAdmissionPolicy), declared by the namespace that needs them. The policies live in a
+separate policy chart; posture renders the per-namespace object they read as parameters
+(`paramRef`). Independent of `mesh`.
 
 ```yaml
+policyExceptions:
+  enabled: true                       # false: render nothing (cluster without the CRD)
+
 exceptions:
-  legacy-agent-root:                  # a name for the exception
-    policy: require-non-root          # the admission policy's name
-    workload: legacy-agent            # optional; omit for the whole namespace
-    selector: name                    # optional
-    kinds: [Deployment]               # optional
-    reason: "Vendor image runs as root; ticket OPS-123"
-    expires: 2027-03-31               # required
+  prometheus:                         # workload in this namespace, matched by label
+    selector: name                    # optional: name | component | instance | app
+    policies:
+      disallow-host-path:             # the policy's name
+        kind: ValidatingAdmissionPolicy   # or MutatingAdmissionPolicy
+        reason: "node exporter reads /proc"   # optional
+        expires: 2027-03-31           # optional; after this date the entry is left out
+      add-default-limits:
+        kind: MutatingAdmissionPolicy
+        enabled: false                # default true; false keeps the entry but exempts nothing
 ```
 
-- [ ] Render one ConfigMap named `posture-exceptions` holding the list, in the format the
-      policies expect (open question 3).
-- [ ] `reason` and `expires` are required (schema). Expired entries are listed in NOTES.txt
-      and fail the render when `exceptionsFailOnExpired: true` (sprig `now`, `toDate`).
-- [ ] The ConfigMap must be adoptable: Neutron Star's installer creates it empty, with Helm
-      ownership annotations, before this chart installs. Unit-test its name and labels so
-      they can't drift.
-- [ ] e2e with a sample ValidatingAdmissionPolicy that reads parameters from the admitted
-      object's namespace: an exempt workload is admitted, a non-exempt one is denied, and a
-      namespace with no exceptions object at all gets the full policy (never "skip the
-      policy").
+Rendered, inverted to policy -> workloads, entries sorted for stable output:
 
-**Done when** that e2e passes, including the missing-object case.
+```yaml
+apiVersion: posture.dev/v1alpha1
+kind: PolicyExceptions
+metadata:
+  name: posture-exceptions
+  namespace: <release namespace>
+  annotations: { posture.dev/rule: exceptions }
+spec:
+  exceptions:
+    - policy: { kind: ValidatingAdmissionPolicy, name: disallow-host-path }
+      workloads:
+        - matchLabels: { app.kubernetes.io/name: prometheus }
+          reason: node exporter reads /proc
+          expires: "2027-03-31"
+```
+
+- [ ] Schema and model: `exceptions` is a map keyed by workload (`nameNotAny`), `policies` a
+      map keyed by policy name; `kind` is `ValidatingAdmissionPolicy` or
+      `MutatingAdmissionPolicy`; `reason` optional; `enabled` defaults to true; `expires`
+      optional, a `YYYY-MM-DD` date. Non-empty `exceptions` with `policyExceptions.enabled:
+      false` fail (they'd otherwise be silently ignored).
+- [ ] Renderer (`templates/exceptions/`): one `PolicyExceptions` named `posture-exceptions`,
+      rendered whenever `policyExceptions.enabled` is true, **even with no exceptions**, so a
+      policy's binding can use `parameterNotFoundAction: Deny` and fail closed in namespaces
+      without posture (with `Allow` a missing object would skip the policy entirely).
+- [ ] Expiry: admission CEL has no current-time function, so expiry is applied at render. An
+      entry whose `expires` is before today (UTC) is left out of the object and listed in a
+      NOTES.txt WARNING; unexpired entries carry `expires` for visibility. An expired exception
+      stops exempting at the next render (`helm upgrade`, GitOps resync), not at midnight.
+- [ ] Reference CRD in this repo (for example `crds-reference/posture.dev_policyexceptions.yaml`,
+      not under `crds/`, so Helm never installs it): it defines the contract. The policy chart
+      ships a copy; posture never installs or references it. kubeconform validates against it.
+      Within a version, changes are additive only.
+- [ ] A documented CEL snippet for policy authors (match the admitted object's labels against
+      `params.spec.exceptions[].workloads[].matchLabels` for the policy's own name and kind).
+- [ ] Unit tests: every field, the inversion and sort order, `enabled: false`, the empty
+      object, the `fail` cases, expiry with dates far in the past and future (so tests never
+      flip), and the NOTES warning.
+- [ ] e2e under every mesh: the harness applies the reference CRD, a sample
+      ValidatingAdmissionPolicy with `paramKind`, and a binding with
+      `parameterNotFoundAction: Deny`. An exempt workload is admitted, a non-exempt one is
+      denied, and a namespace without posture is denied (fail closed, never "skip the policy").
+
+**Done when** that e2e passes, including the namespace without posture.
 
 ---
 
@@ -353,10 +427,7 @@ Open questions, settled at the start of the phase:
 
 ## Open questions
 
-1. **Exceptions format (phase 4).** Deferred: agree on the shape with the admission policies'
-   CEL, and on how a policy treats a missing parameter object.
-
-2. **An escape hatch for custom resources (deferred, after phase 6).** The generated rules
+1. **An escape hatch for custom resources (deferred, after phase 6).** The generated rules
    will eventually meet a case they can't express (an L7 rule on a waypoint, an unusual
    Cilium selector, a vendor-specific policy). Users need a way to add their own objects
    without forking the chart, but a fully open "any manifest" field would let this chart
@@ -380,6 +451,16 @@ Open questions, settled at the start of the phase:
    judge hand-written objects.
 
 ### Settled
+
+- **Exceptions format (phase 4).** posture renders one `PolicyExceptions`
+  (`posture.dev/v1alpha1`) named `posture-exceptions` per namespace, read by native admission
+  policies through `paramRef`. Values are `exceptions.<workload>.policies.<policy>` with `kind`,
+  optional `reason`, `enabled` (default true) and optional `expires`, matched by label like the
+  traffic rules. The object is always rendered (even empty) while `policyExceptions.enabled` is
+  true, so policies fail closed (`parameterNotFoundAction: Deny`) where posture isn't
+  installed. The CRD is cluster-scoped, so it's installed by the policy chart; posture defines
+  the contract with a reference CRD in this repo. Expiry is applied at render, since admission
+  CEL can't read the time.
 
 - Ports are always required and always numeric. There is no "all ports" form and no named
   ports.

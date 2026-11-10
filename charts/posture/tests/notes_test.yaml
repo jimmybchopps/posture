@@ -71,7 +71,7 @@ tests:
       mesh: istio
     asserts:
       - matchRegexRaw: { pattern: "admit in-cluster clients by mesh\\s+identity" }
-      - matchRegexRaw: { pattern: "kubectl get networkpolicies,authorizationpolicies.security.istio.io -n team" }
+      - matchRegexRaw: { pattern: "kubectl get networkpolicies,authorizationpolicies.security.istio.io,peerauthentications.security.istio.io -n team" }
       - notMatchRegexRaw: { pattern: WARNING }
 
   - it: warns loudly when authorization is disabled under istio
@@ -105,3 +105,42 @@ tests:
       ingress.grafana.sources.monitoring: [3000]
     asserts:
       - notMatchRegexRaw: { pattern: WARNING }
+
+  # mTLS (mesh: istio)
+  - it: no mTLS notes with mesh none
+    asserts:
+      - notMatchRegexRaw: { pattern: "mTLS" }
+      - notMatchRegexRaw: { pattern: peerauthentications }
+
+  - it: STRICT lists the exclusions
+    set:
+      mesh: istio
+      mtls.exclusions.api: [8081, 8082]
+      mtls.exclusions.web: { selector: instance, ports: [9090] }
+    asserts:
+      - matchRegexRaw: { pattern: "mTLS \\(Istio ambient\\): STRICT" }
+      - matchRegexRaw: { pattern: "- api: 8081, 8082\\n" }
+      - matchRegexRaw: { pattern: "- web: 9090\\n" }
+
+  - it: STRICT without exclusions lists none
+    set:
+      mesh: istio
+    asserts:
+      - matchRegexRaw: { pattern: "STRICT: only mesh clients" }
+      - notMatchRegexRaw: { pattern: "also accept plaintext" }
+
+  - it: PERMISSIVE says the NetworkPolicies alone limit plaintext clients
+    set:
+      mesh: istio
+      mtls.mode: PERMISSIVE
+    asserts:
+      - matchRegexRaw: { pattern: "PERMISSIVE: every port also accepts plaintext" }
+      - matchRegexRaw: { pattern: "allow-plaintext-to-all" }
+
+  - it: inherit renders nothing and says plaintext is still refused by authorization
+    set:
+      mesh: istio
+      mtls.mode: inherit
+    asserts:
+      - matchRegexRaw: { pattern: "inherit: nothing is rendered" }
+      - notMatchRegexRaw: { pattern: peerauthentications }

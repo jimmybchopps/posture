@@ -32,3 +32,7 @@ tests:
     values: [../../../examples/identity.yaml]
     asserts:
       - matchSnapshot: {}
+  - it: mtls
+    values: [../../../examples/mtls.yaml]
+    asserts:
+      - matchSnapshot: {}

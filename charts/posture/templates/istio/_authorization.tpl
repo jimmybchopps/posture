@@ -14,12 +14,12 @@ The most ports one rule's AuthorizationPolicy may list once ranges are expanded.
 {{- define "posture.istio.maxPorts" -}}1024{{- end -}}
 
 {{/*
-A complete AuthorizationPolicy.
-Input: dict "root" $ "name" <name> "rule" <values path> "spec" <dict>
+A complete security.istio.io/v1 object: an AuthorizationPolicy, or the kind given.
+Input: dict "root" $ "name" <name> "rule" <values path> "spec" <dict> ["kind" <kind>]
 */}}
 {{- define "posture.istio.object" -}}
 apiVersion: security.istio.io/v1
-kind: AuthorizationPolicy
+kind: {{ .kind | default "AuthorizationPolicy" }}
 metadata:
   name: {{ .name }}
   namespace: {{ .root.Release.Namespace }}
