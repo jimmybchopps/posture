@@ -114,7 +114,7 @@ install_istio() {
 # The external host: a container on the k3d Docker network, outside the cluster, on an address
 # inside the private ranges (172.16.0.0/12), so the postgres/sso presets match it for real.
 
-EXT_IP="172.16.100.100"
+EXT_IP=""
 
 start_external() {
   log "starting the external host"
