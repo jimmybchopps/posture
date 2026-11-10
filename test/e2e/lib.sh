@@ -66,38 +66,10 @@ install_cni() {
     "$manifest"
   "$KUBECTL" apply -f "$manifest" >/dev/null
   rm -f "$manifest"
-  "$KUBECTL" -n kube-system rollout status daemonset/calico-node --timeout=300s
-  "$KUBECTL" -n kube-system rollout status deployment/calico-kube-controllers --timeout=300s
-  "$KUBECTL" -n kube-system rollout status deployment/coredns --timeout=300s
+  "$KUBECTL" -n kube-system rollout status daemonset/calico-node --timeout=120s
+  "$KUBECTL" -n kube-system rollout status deployment/calico-kube-controllers --timeout=120s
+  "$KUBECTL" -n kube-system rollout status deployment/coredns --timeout=120s
 }
-
-# Istio ambient on k3d. Called by run.sh only when MESH=istio, after install_cni (Calico is
-# up and CoreDNS is ready) and before any scenario runs.
-#
-# TODO(istio): add the Istio Helm chart installation here. Everything it needs is already set:
-#   - "$HELM" and "$KUBECTL" are the pinned binaries (use them, not whatever is on PATH).
-#   - ISTIO_VERSION is pinned in the Makefile (ISTIO_VERSION := ...) and passed in by `make e2e`;
-#     bump it there, not here. Use it as --version on every chart so they stay in step.
-#   - The kube context already points at the k3d cluster.
-#
-# Where the configuration goes:
-#   - Chart values: inline --set flags here, or, if they grow, values files in a new
-#     test/e2e/istio/ directory (e.g. test/e2e/istio/cni.yaml), passed with
-#     -f "$HERE/istio/cni.yaml". $HERE is test/e2e.
-#   - istio-cni's CNI directories must match the ones install_cni gives Calico above
-#     (conf: /var/lib/rancher/k3s/agent/etc/cni/net.d, bin: /var/lib/rancher/k3s/data/cni).
-#     If you change one, change the other. Neither has been run on a real cluster.
-#
-# What the rest of the harness expects once this returns:
-#   - The ambient data plane is running and ready (ztunnel on every node, istio-cni ready),
-#     so a namespace labeled istio.io/dataplane-mode=ambient is meshed straight away.
-#     namespace() in this file adds that label to every test namespace when MESH=istio.
-#   - Kubelet probes arrive from 169.254.7.127 (the ambient default). posture's
-#     allow-ingress-from-ambient-probes-to-all policy allows that address, and the
-#     grafana-prometheus scenario's `extra` step depends on it.
-#   - No waypoints and no egress gateway are needed: posture is L4 only in Phase 1.
-#
-# A possible outline (not verified, adjust to your setup):
 
 install_istio() {
   log "installing Istio ${ISTIO_VERSION} (ambient)"
