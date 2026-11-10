@@ -11,7 +11,7 @@ K3D_VERSION           := 5.9.0
 KUBECTL_VERSION       := 1.37.2
 # e2e (test/e2e/run.sh)
 K3S_IMAGE             := rancher/k3s:v1.37.2-k3s1
-CALICO_VERSION        := 3.33.0
+CALICO_VERSION        := 3.29.0
 # Istio Helm chart version for `make e2e MESH=istio`; installed by install_istio in test/e2e/lib.sh.
 ISTIO_VERSION         := 1.32.0
 AGNHOST_IMAGE         := registry.k8s.io/e2e-test-images/agnhost:2.61
