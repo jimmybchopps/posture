@@ -59,7 +59,7 @@ install_cni() {
   # The guide's "kubectl get tigerastatus" check, as a wait. The status object only appears once
   # the operator has picked up the Installation, so wait for it to exist first.
   "$KUBECTL" wait --for=create tigerastatus/calico --timeout=120s
-  "$KUBECTL" wait --for=condition=Available tigerastatus/calico --timeout=120s
+  "$KUBECTL" wait --for=condition=Available tigerastatus/calico --timeout=180s
   "$KUBECTL" -n kube-system rollout status deployment/coredns --timeout=120s
 }
 
@@ -68,7 +68,7 @@ install_istio() {
   "$HELM" repo add istio https://blob.istio.io/istio-release/charts --force-update
   "$HELM" install istio-base istio/base     -n istio-system --create-namespace --version "$ISTIO_VERSION" --wait
   "$HELM" install istiod     istio/istiod   -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --wait
-  "$HELM" install istio-cni  istio/cni      -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --set global.platform=k3s --wait
+  "$HELM" install istio-cni  istio/cni      -n istio-system --version "$ISTIO_VERSION" --set profile=ambient --wait
   "$HELM" install ztunnel    istio/ztunnel  -n istio-system --version "$ISTIO_VERSION" --wait
   "$KUBECTL" -n istio-system rollout status daemonset/istio-cni-node --timeout=300s
   "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s
