@@ -10,6 +10,8 @@
 #   K3S_IMAGE, CALICO_VERSION,
 #   ISTIO_VERSION, AGNHOST_IMAGE,
 #   CURL_IMAGE                       pinned versions (set by the Makefile)
+#   POLICY_CRD, POLICY_CHART         the pinned policy release's PolicyExceptions CRD and chart
+#                                    package (make policy-release)
 #   E2E_CLUSTER                      cluster name (default posture-e2e)
 #   E2E_KEEP=1                       keep the cluster and external host afterwards
 #   E2E_REUSE=1                      use an existing cluster of that name (skips setup)
@@ -30,7 +32,9 @@ HELM=${HELM:-helm}
 : "${ISTIO_VERSION:?set ISTIO_VERSION}"
 : "${AGNHOST_IMAGE:?set AGNHOST_IMAGE}"
 : "${CURL_IMAGE:?set CURL_IMAGE}"
-export MESH HERE ROOT CLUSTER K3D KUBECTL HELM
+: "${POLICY_CRD:?set POLICY_CRD (make e2e sets it)}"
+: "${POLICY_CHART:?set POLICY_CHART (make e2e sets it)}"
+export MESH HERE ROOT CLUSTER K3D KUBECTL HELM POLICY_CRD POLICY_CHART
 
 # shellcheck source=test/e2e/lib.sh
 source "$HERE/lib.sh"
@@ -55,12 +59,16 @@ else
   # TODO(istio): the Istio Helm installation goes in install_istio (test/e2e/lib.sh).
   if [[ $MESH == istio ]]; then install_istio; fi
 fi
+# Every posture install renders posture-exceptions, so the PolicyExceptions CRD must exist. On
+# its own it changes nothing; only the exceptions scenario installs the policies that read it.
+quiet "$KUBECTL" apply -f "$POLICY_CRD"
+quiet "$KUBECTL" wait --for=condition=Established crd/policyexceptions.policy.posture.dev --timeout=60s
 start_external
 export EXT_IP
 
 scenarios=("$@")
 if [[ ${#scenarios[@]} -eq 0 ]]; then
-  scenarios=(minimal strict grafana-prometheus identity identity-authz-only identity-netpol-only mtls-strict mtls-permissive)
+  scenarios=(minimal strict grafana-prometheus identity identity-authz-only identity-netpol-only mtls-strict mtls-permissive exceptions)
 fi
 for s in "${scenarios[@]}"; do
   run_scenario "$s"

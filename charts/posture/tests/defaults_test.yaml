@@ -1,6 +1,7 @@
 suite: defaults
 templates:
   - templates/networkpolicy/*.yaml
+  - templates/exceptions/*.yaml
 release:
   namespace: team
 tests:
@@ -22,6 +23,8 @@ tests:
         template: templates/networkpolicy/rules.yaml
       - hasDocuments: { count: 0 }
         template: templates/networkpolicy/ambient-probes.yaml
+      - containsDocument: { kind: PolicyExceptions, apiVersion: policy.posture.dev/v1alpha1, name: posture-exceptions, namespace: team }
+        template: templates/exceptions/policyexceptions.yaml
 
   - it: adds the probe policy with mesh istio
     set:
@@ -40,9 +43,18 @@ tests:
       - equal: { path: 'metadata.labels["app.kubernetes.io/managed-by"]', value: Helm }
       - exists: { path: 'metadata.annotations["posture.dev/rule"]' }
 
-  - it: namePrefix applies to every object
+  - it: namePrefix applies to every object except posture-exceptions
     set:
       mesh: istio
       namePrefix: team-a
     asserts:
       - matchRegex: { path: metadata.name, pattern: ^team-a- }
+        template: templates/networkpolicy/default-deny.yaml
+      - matchRegex: { path: metadata.name, pattern: ^team-a- }
+        template: templates/networkpolicy/same-namespace.yaml
+      - matchRegex: { path: metadata.name, pattern: ^team-a- }
+        template: templates/networkpolicy/rules.yaml
+      - matchRegex: { path: metadata.name, pattern: ^team-a- }
+        template: templates/networkpolicy/ambient-probes.yaml
+      - equal: { path: metadata.name, value: posture-exceptions }
+        template: templates/exceptions/policyexceptions.yaml

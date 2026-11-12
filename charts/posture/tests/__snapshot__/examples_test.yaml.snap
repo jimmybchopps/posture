@@ -1,5 +1,42 @@
-grafana:
+exceptions:
   1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions:
+        - policy:
+            kind: ValidatingAdmissionPolicy
+            name: disallow-host-path
+          workloads:
+            - matchLabels:
+                app.kubernetes.io/name: node-agent
+              reason: reads /proc from the node
+        - policy:
+            kind: ValidatingAdmissionPolicy
+            name: require-run-as-non-root
+          workloads:
+            - expires: "2099-12-31"
+              matchLabels:
+                app.kubernetes.io/instance: legacy
+              reason: vendor image runs as root; ticket to rebuild it
+        - policy:
+            kind: ValidatingAdmissionPolicy
+            name: restrict-volume-types
+          workloads:
+            - matchLabels:
+                app.kubernetes.io/name: node-agent
+              reason: reads /proc from the node
+  2: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -16,7 +53,7 @@ grafana:
       podSelector: {}
       policyTypes:
         - Ingress
-  2: |
+  3: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -33,7 +70,111 @@ grafana:
       podSelector: {}
       policyTypes:
         - Egress
+  4: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: allowDNS
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: allow-egress-from-all-to-dns
+      namespace: example
+    spec:
+      egress:
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      podSelector: {}
+      policyTypes:
+        - Egress
+  5: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: allowSameNamespace
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: allow-same-namespace
+      namespace: example
+    spec:
+      egress:
+        - to:
+            - podSelector: {}
+      ingress:
+        - from:
+            - podSelector: {}
+      podSelector: {}
+      policyTypes:
+        - Ingress
+        - Egress
+grafana:
+  1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions: []
+  2: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: networkPolicy.ingress
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: deny-all-ingress
+      namespace: example
+    spec:
+      podSelector: {}
+      policyTypes:
+        - Ingress
   3: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: networkPolicy.egress
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: deny-all-egress
+      namespace: example
+    spec:
+      podSelector: {}
+      policyTypes:
+        - Egress
+  4: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -60,7 +201,7 @@ grafana:
           app.kubernetes.io/name: grafana
       policyTypes:
         - Ingress
-  4: |
+  5: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -90,7 +231,7 @@ grafana:
           app.kubernetes.io/name: grafana
       policyTypes:
         - Ingress
-  5: |
+  6: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -120,7 +261,7 @@ grafana:
           app.kubernetes.io/name: grafana
       policyTypes:
         - Egress
-  6: |
+  7: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -152,7 +293,7 @@ grafana:
           app.kubernetes.io/name: grafana
       policyTypes:
         - Egress
-  7: |
+  8: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -182,7 +323,7 @@ grafana:
       podSelector: {}
       policyTypes:
         - Egress
-  8: |
+  9: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -208,6 +349,21 @@ grafana:
         - Egress
 identity:
   1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions: []
+  2: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -221,7 +377,7 @@ identity:
       name: deny-all-ingress
       namespace: example
     spec: {}
-  2: |
+  3: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -248,7 +404,7 @@ identity:
       selector:
         matchLabels:
           app.kubernetes.io/name: api
-  3: |
+  4: |
     apiVersion: security.istio.io/v1
     kind: PeerAuthentication
     metadata:
@@ -264,7 +420,7 @@ identity:
     spec:
       mtls:
         mode: STRICT
-  4: |
+  5: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -285,7 +441,7 @@ identity:
       podSelector: {}
       policyTypes:
         - Ingress
-  5: |
+  6: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -302,7 +458,7 @@ identity:
       podSelector: {}
       policyTypes:
         - Ingress
-  6: |
+  7: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -319,7 +475,7 @@ identity:
       podSelector: {}
       policyTypes:
         - Egress
-  7: |
+  8: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -348,7 +504,7 @@ identity:
           app.kubernetes.io/name: api
       policyTypes:
         - Ingress
-  8: |
+  9: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -377,7 +533,7 @@ identity:
           app.kubernetes.io/name: web
       policyTypes:
         - Egress
-  9: |
+  10: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -411,6 +567,21 @@ identity:
         - Egress
 istio:
   1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions: []
+  2: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -424,7 +595,7 @@ istio:
       name: deny-all-ingress
       namespace: example
     spec: {}
-  2: |
+  3: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -444,7 +615,7 @@ istio:
             - source:
                 namespaces:
                   - example
-  3: |
+  4: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -471,7 +642,7 @@ istio:
       selector:
         matchLabels:
           app.kubernetes.io/name: grafana
-  4: |
+  5: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -498,7 +669,7 @@ istio:
       selector:
         matchLabels:
           app.kubernetes.io/name: grafana
-  5: |
+  6: |
     apiVersion: security.istio.io/v1
     kind: PeerAuthentication
     metadata:
@@ -514,7 +685,7 @@ istio:
     spec:
       mtls:
         mode: STRICT
-  6: |
+  7: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -535,7 +706,7 @@ istio:
       podSelector: {}
       policyTypes:
         - Ingress
-  7: |
+  8: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -552,7 +723,7 @@ istio:
       podSelector: {}
       policyTypes:
         - Ingress
-  8: |
+  9: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -569,7 +740,7 @@ istio:
       podSelector: {}
       policyTypes:
         - Egress
-  9: |
+  10: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -598,7 +769,7 @@ istio:
           app.kubernetes.io/name: grafana
       policyTypes:
         - Ingress
-  10: |
+  11: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -630,7 +801,7 @@ istio:
           app.kubernetes.io/name: grafana
       policyTypes:
         - Ingress
-  11: |
+  12: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -660,7 +831,7 @@ istio:
           app.kubernetes.io/name: grafana
       policyTypes:
         - Egress
-  12: |
+  13: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -692,7 +863,7 @@ istio:
           app.kubernetes.io/name: grafana
       policyTypes:
         - Egress
-  13: |
+  14: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -724,7 +895,7 @@ istio:
       podSelector: {}
       policyTypes:
         - Egress
-  14: |
+  15: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -750,6 +921,21 @@ istio:
         - Egress
 minimal:
   1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions: []
+  2: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -766,7 +952,7 @@ minimal:
       podSelector: {}
       policyTypes:
         - Ingress
-  2: |
+  3: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -783,7 +969,7 @@ minimal:
       podSelector: {}
       policyTypes:
         - Egress
-  3: |
+  4: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -813,7 +999,7 @@ minimal:
       podSelector: {}
       policyTypes:
         - Egress
-  4: |
+  5: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -839,6 +1025,21 @@ minimal:
         - Egress
 mtls:
   1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions: []
+  2: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -852,7 +1053,7 @@ mtls:
       name: deny-all-ingress
       namespace: example
     spec: {}
-  2: |
+  3: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -879,7 +1080,7 @@ mtls:
       selector:
         matchLabels:
           app.kubernetes.io/name: api
-  3: |
+  4: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -907,7 +1108,7 @@ mtls:
       selector:
         matchLabels:
           app.kubernetes.io/name: api
-  4: |
+  5: |
     apiVersion: security.istio.io/v1
     kind: AuthorizationPolicy
     metadata:
@@ -935,7 +1136,7 @@ mtls:
       selector:
         matchLabels:
           app.kubernetes.io/name: api
-  5: |
+  6: |
     apiVersion: security.istio.io/v1
     kind: PeerAuthentication
     metadata:
@@ -951,7 +1152,7 @@ mtls:
     spec:
       mtls:
         mode: STRICT
-  6: |
+  7: |
     apiVersion: security.istio.io/v1
     kind: PeerAuthentication
     metadata:
@@ -973,7 +1174,7 @@ mtls:
       selector:
         matchLabels:
           app.kubernetes.io/name: api
-  7: |
+  8: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -994,7 +1195,7 @@ mtls:
       podSelector: {}
       policyTypes:
         - Ingress
-  8: |
+  9: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1011,7 +1212,7 @@ mtls:
       podSelector: {}
       policyTypes:
         - Ingress
-  9: |
+  10: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1028,7 +1229,7 @@ mtls:
       podSelector: {}
       policyTypes:
         - Egress
-  10: |
+  11: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1059,7 +1260,7 @@ mtls:
           app.kubernetes.io/name: api
       policyTypes:
         - Ingress
-  11: |
+  12: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1093,7 +1294,7 @@ mtls:
           app.kubernetes.io/name: api
       policyTypes:
         - Ingress
-  12: |
+  13: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1124,7 +1325,7 @@ mtls:
           app.kubernetes.io/name: web
       policyTypes:
         - Egress
-  13: |
+  14: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1158,6 +1359,21 @@ mtls:
         - Egress
 prometheus:
   1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions: []
+  2: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1174,7 +1390,7 @@ prometheus:
       podSelector: {}
       policyTypes:
         - Ingress
-  2: |
+  3: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1191,7 +1407,7 @@ prometheus:
       podSelector: {}
       policyTypes:
         - Egress
-  3: |
+  4: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1225,7 +1441,7 @@ prometheus:
           app.kubernetes.io/name: prometheus
       policyTypes:
         - Egress
-  4: |
+  5: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1255,7 +1471,7 @@ prometheus:
       podSelector: {}
       policyTypes:
         - Egress
-  5: |
+  6: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1281,6 +1497,21 @@ prometheus:
         - Egress
 strict:
   1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions: []
+  2: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1297,7 +1528,7 @@ strict:
       podSelector: {}
       policyTypes:
         - Ingress
-  2: |
+  3: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1314,7 +1545,7 @@ strict:
       podSelector: {}
       policyTypes:
         - Egress
-  3: |
+  4: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1341,7 +1572,7 @@ strict:
           app.kubernetes.io/name: api
       policyTypes:
         - Ingress
-  4: |
+  5: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -1368,7 +1599,7 @@ strict:
           app.kubernetes.io/name: web
       policyTypes:
         - Egress
-  5: |
+  6: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:

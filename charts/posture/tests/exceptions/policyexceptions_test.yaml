@@ -1,0 +1,137 @@
+suite: policy exceptions
+templates:
+  - templates/exceptions/policyexceptions.yaml
+release:
+  name: posture
+  namespace: monitoring
+tests:
+  - it: renders an empty posture-exceptions by default, so policies can fail closed elsewhere
+    asserts:
+      - hasDocuments: { count: 1 }
+      - isKind: { of: PolicyExceptions }
+      - isAPIVersion: { of: policy.posture.dev/v1alpha1 }
+      - equal: { path: metadata.name, value: posture-exceptions }
+      - equal: { path: metadata.namespace, value: monitoring }
+      - equal: { path: 'metadata.labels["app.kubernetes.io/instance"]', value: posture }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: exceptions }
+      - equal: { path: spec, value: { exceptions: [] } }
+
+  - it: renders nothing with policyExceptions.enabled false
+    set:
+      policyExceptions.enabled: false
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: renders every field
+    set:
+      exceptions:
+        prometheus:
+          policies:
+            disallow-host-path:
+              kind: ValidatingAdmissionPolicy
+              reason: node exporter reads /proc
+              expires: "2999-12-31"
+    asserts:
+      - equal:
+          path: spec.exceptions
+          value:
+            - policy: { kind: ValidatingAdmissionPolicy, name: disallow-host-path }
+              workloads:
+                - matchLabels: { app.kubernetes.io/name: prometheus }
+                  reason: node exporter reads /proc
+                  expires: "2999-12-31"
+
+  - it: matches by the entry's selector
+    set:
+      exceptions.agent:
+        selector: instance
+        policies: { disallow-host-path: { kind: ValidatingAdmissionPolicy } }
+    asserts:
+      - equal: { path: 'spec.exceptions[0].workloads[0].matchLabels', value: { app.kubernetes.io/instance: agent } }
+
+  - it: inverts to policy -> workloads, policies sorted by kind then name, workloads by key
+    set:
+      exceptions:
+        zeta:
+          policies:
+            disallow-host-path: { kind: ValidatingAdmissionPolicy }
+            add-default-resources: { kind: MutatingAdmissionPolicy }
+        alpha:
+          selector: app
+          policies:
+            restrict-seccomp: { kind: ValidatingAdmissionPolicy }
+            disallow-host-path: { kind: ValidatingAdmissionPolicy }
+    asserts:
+      - equal:
+          path: spec.exceptions
+          value:
+            - policy: { kind: MutatingAdmissionPolicy, name: add-default-resources }
+              workloads:
+                - matchLabels: { app.kubernetes.io/name: zeta }
+            - policy: { kind: ValidatingAdmissionPolicy, name: disallow-host-path }
+              workloads:
+                - matchLabels: { app: alpha }
+                - matchLabels: { app.kubernetes.io/name: zeta }
+            - policy: { kind: ValidatingAdmissionPolicy, name: restrict-seccomp }
+              workloads:
+                - matchLabels: { app: alpha }
+
+  - it: the same policy name under both kinds stays two entries
+    set:
+      exceptions.app.policies.pod-defaults: { kind: ValidatingAdmissionPolicy }
+      exceptions.other.policies.pod-defaults: { kind: MutatingAdmissionPolicy }
+    asserts:
+      - lengthEqual: { path: spec.exceptions, count: 2 }
+      - equal: { path: 'spec.exceptions[0].policy', value: { kind: MutatingAdmissionPolicy, name: pod-defaults } }
+      - equal: { path: 'spec.exceptions[1].policy', value: { kind: ValidatingAdmissionPolicy, name: pod-defaults } }
+
+  - it: enabled false leaves the entry out
+    set:
+      exceptions.app.policies:
+        disallow-host-path: { kind: ValidatingAdmissionPolicy, enabled: false }
+        restrict-seccomp: { kind: ValidatingAdmissionPolicy, enabled: true }
+    asserts:
+      - equal:
+          path: spec.exceptions
+          value:
+            - policy: { kind: ValidatingAdmissionPolicy, name: restrict-seccomp }
+              workloads:
+                - matchLabels: { app.kubernetes.io/name: app }
+
+  - it: only disabled entries give an empty object
+    set:
+      exceptions.app.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy, enabled: false }
+    asserts:
+      - equal: { path: spec, value: { exceptions: [] } }
+
+  - it: an expired entry is left out; an unexpired one is kept
+    set:
+      exceptions.app.policies:
+        disallow-host-path: { kind: ValidatingAdmissionPolicy, expires: "2000-01-01" }
+        restrict-seccomp: { kind: ValidatingAdmissionPolicy, expires: "2999-12-31" }
+    asserts:
+      - equal:
+          path: spec.exceptions
+          value:
+            - policy: { kind: ValidatingAdmissionPolicy, name: restrict-seccomp }
+              workloads:
+                - matchLabels: { app.kubernetes.io/name: app }
+                  expires: "2999-12-31"
+
+  - it: namePrefix doesn't apply (the policies' paramRef names posture-exceptions)
+    set:
+      namePrefix: team-a
+    asserts:
+      - equal: { path: metadata.name, value: posture-exceptions }
+
+  - it: the same output under mesh istio
+    set:
+      mesh: istio
+      exceptions.prometheus.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy }
+    asserts:
+      - equal:
+          path: spec.exceptions
+          value:
+            - policy: { kind: ValidatingAdmissionPolicy, name: disallow-host-path }
+              workloads:
+                - matchLabels: { app.kubernetes.io/name: prometheus }

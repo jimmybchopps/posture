@@ -1,0 +1,8 @@
+# expires as an unquoted YAML date, the way users write it. Linted with real Helm (make lint):
+# helm-unittest would read it as a timestamp.
+exceptions:
+  prometheus:
+    policies:
+      disallow-host-path:
+        kind: ValidatingAdmissionPolicy
+        expires: 2999-12-31

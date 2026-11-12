@@ -1,0 +1,31 @@
+# Admission-policy exceptions: posture-exceptions (PolicyExceptions, policy.posture.dev/v1alpha1),
+# which the policy chart's admission policies read as parameters. Independent of mesh; the
+# traffic rules are the defaults.
+#
+# Also the e2e fixture for scenarios/exceptions.sh: node-agent mounts a hostPath, which two
+# baked-in policies refuse, and legacy runs as root.
+#
+# Dates are quoted only for helm-unittest, which reads an unquoted date as a timestamp; Helm
+# itself keeps 2099-12-31 a string (make lint checks the unquoted form).
+exceptions:
+  node-agent:
+    policies:
+      disallow-host-path:
+        kind: ValidatingAdmissionPolicy
+        reason: reads /proc from the node
+      restrict-volume-types:            # hostPath isn't a restricted volume type either
+        kind: ValidatingAdmissionPolicy
+        reason: reads /proc from the node
+  legacy:
+    selector: instance                  # matched by app.kubernetes.io/instance
+    policies:
+      require-run-as-non-root:
+        kind: ValidatingAdmissionPolicy
+        reason: vendor image runs as root; ticket to rebuild it
+        expires: "2099-12-31"           # far ahead, so the snapshot never changes
+      add-default-resources:            # kept here, but exempts nothing
+        kind: MutatingAdmissionPolicy
+        enabled: false
+      disallow-host-ports:              # expired: left out, and NOTES.txt warns
+        kind: ValidatingAdmissionPolicy
+        expires: "2020-01-01"

@@ -12,6 +12,12 @@ Shape:
   mtls:                                   # see posture.mtls
     mode: STRICT | PERMISSIVE | inherit
     exclusions: [{ key, name, rule, labels, ports: [int] }]   # allow-plaintext-to-<key>
+  exceptions:                             # see posture.exceptions
+    enabled: true                         # policyExceptions.enabled: render posture-exceptions
+    name: posture-exceptions              # fixed; namePrefix doesn't apply
+    policies:                             # sorted by kind, then name; disabled and expired left out
+      - { kind, name, workloads: [{ matchLabels, reason?, expires? }] }   # workloads by key
+    expired: [{ rule, expires }]          # left out at this render (NOTES warning)
   fixed:                                  # fixed objects; a key is absent when not wanted
     denyIngress:   { name, rule }         # deny-all-ingress
     denyEgress:    { name, rule }         # deny-all-egress
@@ -323,6 +329,9 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
 
 {{- $_ := include "posture.checkCollisions" (dict "fixed" $fixed "rules" (concat $acc.rules $mtlsOut.mtls.exclusions)) -}}
 
+{{- $exceptionsOut := dict -}}
+{{- $_ := include "posture.exceptions" (dict "root" $root "out" $exceptionsOut) -}}
+
 {{- toJson (dict
   "mesh" $mesh
   "namespace" .Release.Namespace
@@ -330,6 +339,7 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
   "networkPolicy" (dict "ingress" $v.networkPolicy.ingress "egress" $v.networkPolicy.egress)
   "authorization" (dict "enabled" $v.authorization.enabled)
   "mtls" $mtlsOut.mtls
+  "exceptions" $exceptionsOut.exceptions
   "allowSameNamespace" $v.allowSameNamespace
   "fixed" $fixed
   "rules" $acc.rules) -}}
@@ -405,6 +415,67 @@ Input: dict "root" "mesh" "rules" "fixed" "out"; sets out.mtls:
   {{- end -}}
 {{- end -}}
 {{- $_ := set .out "mtls" (dict "mode" $mode "exclusions" $exclusions) -}}
+{{- end -}}
+
+{{/*
+Admission-policy exceptions, inverted from workload -> policies to policy -> workloads for the
+PolicyExceptions object. Independent of mesh. Entries with enabled: false are left out; so
+are entries whose expires date is before today (UTC), which are listed in expired for
+NOTES.txt. Today is the render date, the only input from outside the values, and it can only
+remove an exception. The object name is fixed (the policies' paramRef names it), so
+namePrefix doesn't apply and it can't collide with the allow- and deny- names.
+Limits are the CRD's (policy.posture.dev_policyexceptions.yaml): 256 policies, 64 workloads
+per policy.
+Input: dict "root" "out"; sets out.exceptions (see the model's shape above).
+*/}}
+{{- define "posture.exceptions" -}}
+{{- $v := .root.Values -}}
+{{- $enabled := $v.policyExceptions.enabled -}}
+{{- $entries := $v.exceptions | default dict -}}
+{{- if and $entries (not $enabled) -}}
+  {{- fail (printf "posture: exceptions: %s set, but policyExceptions.enabled is false, so no posture-exceptions object would carry them; enable it, or remove the exceptions" (keys $entries | sortAlpha | join ", ")) -}}
+{{- end -}}
+{{- $today := dateInZone "2006-01-02" now "UTC" -}}
+{{- $byPolicy := dict -}}
+{{- $expired := list -}}
+{{- range $workload, $entry := $entries -}}
+  {{- $labels := dict (include "posture.selectorLabel" ($entry.selector | default "name")) $workload -}}
+  {{- range $policy, $p := $entry.policies -}}
+    {{- $path := printf "exceptions.%s.policies.%s" $workload $policy -}}
+    {{- $on := ternary $p.enabled true (hasKey $p "enabled") -}}
+    {{- $expires := "" -}}
+    {{- if hasKey $p "expires" -}}
+      {{- $expires = toString $p.expires -}}
+      {{- if ne (toDate "2006-01-02" $expires | date "2006-01-02") $expires -}}
+        {{- fail (printf "posture: %s.expires: %q isn't a valid date (YYYY-MM-DD)" $path $expires) -}}
+      {{- end -}}
+    {{- end -}}
+    {{- if not $on -}}
+    {{- else if and $expires (lt $expires $today) -}}
+      {{- $expired = append $expired (dict "rule" $path "expires" $expires) -}}
+    {{- else -}}
+      {{- $w := dict "matchLabels" $labels -}}
+      {{- with $p.reason -}}{{- $_ := set $w "reason" . -}}{{- end -}}
+      {{- with $expires -}}{{- $_ := set $w "expires" . -}}{{- end -}}
+      {{- $key := printf "%s/%s" $p.kind $policy -}}
+      {{- $current := get $byPolicy $key | default (dict "kind" $p.kind "name" $policy "workloads" (list)) -}}
+      {{- $_ := set $current "workloads" (append $current.workloads $w) -}}
+      {{- $_ := set $byPolicy $key $current -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $policies := list -}}
+{{- range $key := keys $byPolicy | sortAlpha -}}
+  {{- $p := get $byPolicy $key -}}
+  {{- if gt (len $p.workloads) 64 -}}
+    {{- fail (printf "posture: exceptions: %s %s is excepted for %d workloads; the PolicyExceptions CRD allows at most 64 per policy" $p.kind $p.name (len $p.workloads)) -}}
+  {{- end -}}
+  {{- $policies = append $policies $p -}}
+{{- end -}}
+{{- if gt (len $policies) 256 -}}
+  {{- fail (printf "posture: exceptions: %d policies are excepted; the PolicyExceptions CRD allows at most 256" (len $policies)) -}}
+{{- end -}}
+{{- $_ := set .out "exceptions" (dict "enabled" $enabled "name" "posture-exceptions" "policies" $policies "expired" $expired) -}}
 {{- end -}}
 
 {{/*

@@ -83,7 +83,7 @@ install_istio() {
   istio_chart istiod     istiod  --set profile=ambient
   istio_chart istio-cni  cni     --set profile=ambient
   istio_chart ztunnel    ztunnel
-  quiet "$KUBECTL" -n istio-system rollout status daemonset/istio-cni-node --timeout=300s
+  quiet "$KUBECTL" -n kube-system rollout status daemonset/istio-cni-node --timeout=300s
   quiet "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s
   info "istio-cni and ztunnel are ready on every node"
 }
@@ -201,9 +201,15 @@ ${service}
 EOF
 }
 
+# has_deployments <namespace>: whether it has any (a scenario may use bare Pods only).
+has_deployments() {
+  [[ -n $("$KUBECTL" -n "$1" get deployment -o name) ]]
+}
+
 wait_ready() {
   local ns
   for ns in "${NAMESPACES[@]}"; do
+    has_deployments "$ns" || continue
     "$KUBECTL" -n "$ns" wait --for=condition=Available deployment --all --timeout=180s >/dev/null
   done
 }
@@ -228,6 +234,7 @@ install_posture() {
 restart_workloads() {
   local ns d
   for ns in "${NAMESPACES[@]}"; do
+    has_deployments "$ns" || continue
     quiet "$KUBECTL" -n "$ns" rollout restart deployment
   done
   for ns in "${NAMESPACES[@]}"; do
@@ -328,11 +335,12 @@ run_checks() {
 }
 
 # run_scenario <name>: sources scenarios/<name>.sh, which defines setup, install, and checks
-# (and optionally extra, for checks that aren't connections).
+# (and optionally extra, for checks that aren't connections, and teardown, which undoes
+# anything setup did outside the scenario's namespaces; it runs before they're deleted).
 run_scenario() {
   local name=$1 before=$FAILED
   log "scenario ${name} (mesh: ${MESH})"
-  unset -f setup install checks extra
+  unset -f setup install checks extra teardown
   unset SCENARIO_MESHES
   # shellcheck source=/dev/null
   source "${HERE}/scenarios/${name}.sh"
@@ -361,7 +369,55 @@ run_scenario() {
       return 0
     fi
   fi
+  if declare -F teardown >/dev/null; then teardown; fi
   cleanup_namespaces
+}
+
+# ---------------------------------------------------------------------------------------------
+# Admission (policy exceptions)
+#
+# The pinned policy chart (POLICY_CHART) is installed only by scenarios that need it, and
+# uninstalled in their teardown: its baked-in policies apply to every namespace but kube-system,
+# so they'd refuse the other scenarios' workloads. Its CRD stays (resource-policy: keep), as
+# run.sh's copy must for every later posture install.
+
+# install_policy_chart: the policy chart as release "policy" in namespace "policy", with
+# test/e2e/values/policy.yaml. --take-ownership adopts the CRD run.sh applied.
+install_policy_chart() {
+  quiet "$HELM" install policy "$POLICY_CHART" -n policy --create-namespace \
+    -f "$HERE/values/policy.yaml" --take-ownership --wait
+  info "policy chart installed ($(basename "$POLICY_CHART"))"
+}
+
+uninstall_policy_chart() {
+  quiet "$HELM" uninstall policy -n policy --wait
+  "$KUBECTL" delete namespace policy --wait=false >/dev/null 2>&1 || true
+  info "policy chart uninstalled (its CRD is kept)"
+}
+
+# admitted <message> <namespace> <pod>: the manifest on stdin is accepted and the pod becomes
+# Ready.
+admitted() {
+  local message=$1 ns=$2 pod=$3 out
+  if ! out=$("$KUBECTL" apply -f - 2>&1); then
+    record FAIL "$message (refused: $out)"
+  elif "$KUBECTL" -n "$ns" wait --for=condition=Ready "pod/$pod" --timeout=120s >/dev/null 2>&1; then
+    record PASS "$message"
+  else
+    record FAIL "$message (admitted, but not Ready)"
+  fi
+}
+
+# refused <message> <policy>: the manifest on stdin is refused, and the error names the policy.
+refused() {
+  local message=$1 policy=$2 out
+  if out=$("$KUBECTL" apply -f - 2>&1); then
+    record FAIL "$message (admitted)"
+  elif [[ $out == *"$policy"* ]]; then
+    record PASS "$message"
+  else
+    record FAIL "$message (refused, but not by $policy: $out)"
+  fi
 }
 
 # shellcheck disable=SC2034 # read by run.sh

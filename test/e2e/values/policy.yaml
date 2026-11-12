@@ -1,0 +1,7 @@
+# The pinned policy chart, as the exceptions scenario installs it: the baked-in baseline
+# (always enforced) with the registry the e2e images come from, and every optional policy at
+# audit, so the test pods only have to meet the baseline.
+enforcement: audit
+policies:
+  restrict-image-registries:
+    registries: [registry.k8s.io/]
