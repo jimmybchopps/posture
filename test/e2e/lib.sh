@@ -140,9 +140,9 @@ namespace() {
     "$KUBECTL" label namespace "$ns" istio.io/dataplane-mode=ambient >/dev/null
   fi
   # Under the policy chart, pods are denied until posture-exceptions exists (fail closed), and
-  # the baseline checks run before posture is installed: an empty one admits them until
-  # install_posture adopts it.
-  if [[ $POLICY_INSTALLED == 1 ]]; then placeholder_exceptions "$ns"; fi
+  # the baseline checks run before the scenario's posture values apply. As on a real cluster,
+  # posture is the namespace's first release; install_posture upgrades it later.
+  if [[ $POLICY_INSTALLED == 1 ]]; then posture_first "$ns"; fi
   NAMESPACES+=("$ns")
 }
 
@@ -241,14 +241,15 @@ wait_ready() {
 
 # install_posture <namespace> <example file under examples/> [helm args...]
 # Extra arguments go to helm install after the example, e.g. --set networkPolicy.ingress=false.
-# Under the policy chart, --take-ownership adopts the namespace's placeholder posture-exceptions.
+# Under the policy chart, the namespace already has a posture release (posture_first), so this
+# upgrades it; --reset-values keeps nothing from that first release.
 install_posture() {
   local ns=$1 example=$2
   shift 2
-  local adopt=()
-  if [[ $POLICY_INSTALLED == 1 ]]; then adopt=(--take-ownership); fi
-  quiet "$HELM" install posture "$ROOT/charts/posture" -n "$ns" \
-    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" "${adopt[@]}" "$@" --wait
+  local action=(install)
+  if "$HELM" status posture -n "$ns" >/dev/null 2>&1; then action=(upgrade --reset-values); fi
+  quiet "$HELM" "${action[@]}" posture "$ROOT/charts/posture" -n "$ns" \
+    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" "$@" --wait
   info "posture installed in ${ns} (examples/${example}${*:+ $*})"
 }
 
@@ -439,19 +440,16 @@ uninstall_policy_chart() {
 install_platform_exceptions() {
   "$KUBECTL" create namespace istio-system >/dev/null
   quiet "$HELM" install posture "$ROOT/charts/posture" -n istio-system \
-    -f "$HERE/values/istio-system.yaml" --wait
+    -f "$HERE/values/exceptions-only.yaml" -f "$HERE/values/istio-system.yaml" --wait
   info "posture-exceptions installed in istio-system (test/e2e/values/istio-system.yaml)"
 }
 
-# placeholder_exceptions <namespace>: an empty posture-exceptions, for pods created before
-# posture is installed; install_posture adopts and replaces it.
-placeholder_exceptions() {
-  quiet "$KUBECTL" apply -f - <<EOF
-apiVersion: policy.posture.dev/v1alpha1
-kind: PolicyExceptions
-metadata: { name: posture-exceptions, namespace: $1 }
-spec: { exceptions: [] }
-EOF
+# posture_first <namespace>: posture as the namespace's first release, rendering only an empty
+# posture-exceptions (test/e2e/values/exceptions-only.yaml), so pods created before the
+# scenario's posture values apply are admitted. install_posture upgrades it.
+posture_first() {
+  quiet "$HELM" install posture "$ROOT/charts/posture" -n "$1" \
+    -f "$HERE/values/exceptions-only.yaml" --wait
 }
 
 # refused_pods <namespace>: the admission refusals there (FailedCreate events name the policy);

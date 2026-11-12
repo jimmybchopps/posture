@@ -414,8 +414,14 @@ Decisions made in phase 4:
   policies never evaluate. A refused pod's `FailedCreate` event names the policy; the
   harness prints those events when a pod fails to start.
 - Under the policy chart, a namespace's pods are denied until its `posture-exceptions`
-  exists, but the baseline checks run before posture is installed. So `namespace()` applies
-  an empty placeholder, and `install_posture` adopts it with `--take-ownership`.
+  exists, but the baseline checks run before the scenario's posture values apply. So
+  `namespace()` installs posture first with `test/e2e/values/exceptions-only.yaml` (only an
+  empty `posture-exceptions`), and `install_posture` upgrades that release with
+  `--reset-values`. A placeholder applied with kubectl doesn't work: Helm 4's server-side
+  apply conflicts with kubectl's field manager once posture changes `spec.exceptions`, and
+  `--take-ownership` doesn't settle that. Installing first keeps a single owner, matches the
+  real install order (posture is a namespace's first release), needs no test-only Helm flags,
+  and exercises the upgrade path users take whenever they change their rules.
 - e2e workloads meet the baseline under every mesh (non-root 65532, RuntimeDefault seccomp,
   no privilege escalation, drop ALL), and images are fully qualified, because
   `restrict-image-registries` matches plain prefixes. Its registries list `registry.k8s.io/`,

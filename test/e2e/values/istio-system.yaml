@@ -1,12 +1,11 @@
 # posture in istio-system under MESH=istio, installed before Istio itself (after the policy
-# chart): it renders only posture-exceptions, so istiod and ztunnel are admitted against the
-# baseline. No NetworkPolicies, and mesh none, since the mesh's CRDs don't exist yet.
-# istio-cni runs in kube-system, which the policies never evaluate, so it needs nothing here.
+# chart), on top of exceptions-only.yaml: it renders only posture-exceptions, so istiod and
+# ztunnel are admitted against the baseline (no NetworkPolicies, and mesh none, since the
+# mesh's CRDs don't exist yet). istio-cni runs in kube-system, which the policies never
+# evaluate, so it needs nothing here.
 #
 # A missing entry shows up as a FailedCreate event naming the policy (run.sh prints them when
 # the Istio install fails); add it below.
-mesh: none
-networkPolicy: { ingress: false, egress: false }
 
 exceptions:
   istiod:

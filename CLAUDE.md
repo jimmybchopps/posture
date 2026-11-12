@@ -455,8 +455,10 @@ PolicyExceptions CRD. How it gets there depends on the mesh:
   and stays for the whole run. Then come istio-system's exceptions, rendered by posture
   itself from `test/e2e/values/istio-system.yaml` (add an entry there when a mesh workload is
   refused), then Istio, with istio-cni in `kube-system`, which the policies never evaluate.
-  Each scenario namespace gets an empty `posture-exceptions` when it's created (pods there are
-  denied without one), and `install_posture` adopts it with `--take-ownership`.
+  Pods are denied in a namespace without `posture-exceptions`, so each scenario namespace gets
+  a posture release that renders only that object (`test/e2e/values/exceptions-only.yaml`)
+  when it's created, as posture is the first release in any namespace; the scenario's
+  `install_posture` upgrades it.
 
 e2e workloads meet the policy chart's baseline under every mesh. Images are listed fully
 qualified, because `restrict-image-registries` matches plain prefixes
