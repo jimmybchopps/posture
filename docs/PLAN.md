@@ -376,7 +376,7 @@ spec:
       empty object, `namePrefix` not applied, the same output under every mesh, the `fail`
       cases, expiry with dates far in the past and future (so tests never flip), and the NOTES
       warnings.
-- [ ] e2e (`exceptions`, under every mesh), kept minimal: the harness installs the pinned policy
+- [x] e2e (`exceptions`, under every mesh), kept minimal: the harness installs the pinned policy
       chart (baked-in policies enforced, optional ones at audit) and `examples/exceptions.yaml`
       in `apps`. Its `posture-exceptions` is accepted by the CRD; `node-agent` (a hostPath,
       excepted from `disallow-host-path` and `restrict-volume-types`) and `legacy` (root,
