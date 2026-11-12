@@ -6,7 +6,8 @@
 #
 #   node-agent  hostPath volume (disallow-host-path, restrict-volume-types)  excepted: runs
 #   legacy      runs as root (require-run-as-non-root), matched by instance  excepted: runs
-#   intruder    node-agent's spec under another name                         refused
+#   intruder    node-agent's spec under another name                         refused (by either
+#                                                                            hostPath policy)
 #
 # Not mesh-specific (admission doesn't depend on the mesh), so it runs under every mesh. Under
 # MESH=none it installs the policy chart and removes it in teardown; under a mesh the chart is
@@ -62,13 +63,14 @@ spec:
 YAML
 }
 
+# Here-strings, not pipes: admitted and refused must run in this shell so their results count.
 extra() {
-  test_pod node-agent "app.kubernetes.io/name: node-agent" hostpath \
-    | admitted "[exceptions] excepted from disallow-host-path and restrict-volume-types: apps/node-agent runs" apps node-agent
-  test_pod legacy "app.kubernetes.io/instance: legacy" root \
-    | admitted "[exceptions] excepted from require-run-as-non-root (by instance label): apps/legacy runs" apps legacy
-  test_pod intruder "app.kubernetes.io/name: intruder" hostpath \
-    | refused "[exceptions] not excepted: apps/intruder is refused by disallow-host-path" disallow-host-path
+  admitted "[exceptions] excepted from disallow-host-path and restrict-volume-types: apps/node-agent runs" \
+    apps node-agent <<<"$(test_pod node-agent "app.kubernetes.io/name: node-agent" hostpath)"
+  admitted "[exceptions] excepted from require-run-as-non-root (by instance label): apps/legacy runs" \
+    apps legacy <<<"$(test_pod legacy "app.kubernetes.io/instance: legacy" root)"
+  refused "[exceptions] not excepted: apps/intruder is refused (disallow-host-path or restrict-volume-types)" \
+    disallow-host-path restrict-volume-types <<<"$(test_pod intruder "app.kubernetes.io/name: intruder" hostpath)"
 }
 
 teardown() {

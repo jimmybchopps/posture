@@ -461,6 +461,9 @@ refused_pods() {
   if [[ -n $events ]]; then printf '\n--- pods refused in %s\n%s\n' "$1" "$events" >&2; fi
 }
 
+# admitted and refused read the manifest on stdin. Feed them with a here-string or redirect,
+# never a pipe: a pipeline runs them in a subshell, where record's counts are lost.
+
 # admitted <message> <namespace> <pod>: the manifest on stdin is accepted and the pod becomes
 # Ready.
 admitted() {
@@ -474,16 +477,23 @@ admitted() {
   fi
 }
 
-# refused <message> <policy>: the manifest on stdin is refused, and the error names the policy.
+# refused <message> <policy>...: the manifest on stdin is refused, and the error names one of
+# the policies. The API server reports only the first policy that denies, in no fixed order, so
+# list every policy the manifest breaks.
 refused() {
-  local message=$1 policy=$2 out
+  local message=$1 out policy
+  shift
   if out=$("$KUBECTL" apply -f - 2>&1); then
     record FAIL "$message (admitted)"
-  elif [[ $out == *"$policy"* ]]; then
-    record PASS "$message"
-  else
-    record FAIL "$message (refused, but not by $policy: $out)"
+    return
   fi
+  for policy in "$@"; do
+    if [[ $out == *"$policy"* ]]; then
+      record PASS "$message"
+      return
+    fi
+  done
+  record FAIL "$message (refused, but not by any of: $*: $out)"
 }
 
 # shellcheck disable=SC2034 # read by run.sh
