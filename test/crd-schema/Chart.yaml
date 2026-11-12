@@ -1,0 +1,7 @@
+apiVersion: v2
+name: crd-schema
+description: >-
+  Test-only. Renders the JSON schema kubeconform checks posture-exceptions against, from the
+  pinned policy release's PolicyExceptions CRD (make crd-schema). Never installed.
+type: application
+version: 0.0.0

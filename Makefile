@@ -15,8 +15,13 @@ CALICO_VERSION        := 3.29.0
 # Istio Helm chart version for `make e2e MESH=istio`; installed by install_istio in test/e2e/lib.sh.
 ISTIO_VERSION         := 1.32.0
 AGNHOST_IMAGE         := registry.k8s.io/e2e-test-images/agnhost:2.61
-CURL_IMAGE            := curlimages/curl:8.23.0
+CURL_IMAGE            := docker.io/curlimages/curl:8.23.0
 MESH                  ?= none
+# The policy chart release posture pins to: its PolicyExceptions CRD (kubeconform, e2e) and its
+# chart package (e2e only). Checksums from the release's SHA256SUMS; bump all three together.
+POLICY_VERSION        := 0.1.0
+POLICY_CRD_SHA256     := 0b1c6cba6754d0135454d6f7f737f49b7f833f4ee0e7d37315654117821781be
+POLICY_CHART_SHA256   := 47d7dd57c34f45f847e7bceaa087ef3b99608b93565d5870e44667a6d678353a
 
 # Every Helm version this chart supports; `make test-all-helm` runs the suite under each.
 HELM_VERSIONS := $(HELM_MIN_VERSION) $(HELM3_LATEST_VERSION) $(HELM_VERSION)
@@ -44,13 +49,22 @@ export HELM_CACHE_HOME  := $(HELM_HOME)/cache
 export HELM_CONFIG_HOME := $(HELM_HOME)/config
 export HELM_DATA_HOME   := $(HELM_HOME)/data
 
+# The pinned policy release (make policy-release), and the JSON schema kubeconform checks
+# posture-exceptions against, generated from its CRD by test/crd-schema (make crd-schema).
+POLICY_DIR   := $(BIN)/policy-$(POLICY_VERSION)
+POLICY_URL   := https://github.com/jimmybchopps/policy/releases/download/v$(POLICY_VERSION)
+POLICY_CRD   := $(POLICY_DIR)/policy.posture.dev_policyexceptions.yaml
+POLICY_CHART := $(POLICY_DIR)/policy-$(POLICY_VERSION).tgz
+SCHEMAS      := $(BIN)/schemas-policy-$(POLICY_VERSION)
+CRD_SCHEMA   := $(SCHEMAS)/policy.posture.dev/policyexceptions_v1alpha1.json
+
 UNITTEST_PLUGIN := $(HELM_PLUGINS)/helm-unittest
 UNITTEST_VERSION := $(if $(filter 3.14.%,$(HELM_VERSION)),$(HELM_UNITTEST_LEGACY_VERSION),$(HELM_UNITTEST_VERSION))
 # helm-unittest only reads tests/*_test.yaml by default; the suites are grouped by output in
 # subfolders (tests/networkpolicy/, tests/istio/), so name both levels.
 UNITTEST_FILES := -f 'tests/*_test.yaml' -f 'tests/*/*_test.yaml'
 
-.PHONY: help tools tools-e2e lint unittest unittest-update validate test test-all-helm e2e clean
+.PHONY: help tools tools-e2e policy-release crd-schema lint unittest unittest-update validate test test-all-helm e2e clean
 
 help:
 	@echo "make tools          install helm $(HELM_VERSION), helm-unittest, kubeconform into .bin/"
@@ -58,6 +72,7 @@ help:
 	@echo "make test-all-helm  make test under Helm $(HELM_VERSIONS)"
 	@echo "make e2e MESH=none  k3d end-to-end tests (MESH=istio too); E2E_KEEP=1 keeps the cluster"
 	@echo "make unittest-update  regenerate example snapshots (review the diff)"
+	@echo "make policy-release   fetch and verify the pinned policy chart $(POLICY_VERSION) (CRD and package)"
 	@echo "HELM_VERSION=x.y.z selects the Helm version for any target."
 
 tools: $(HELM) $(UNITTEST_PLUGIN) $(KUBECONFORM)
@@ -92,8 +107,37 @@ $(KUBECTL):
 	curl -fsSL -o $@ https://dl.k8s.io/release/v$(KUBECTL_VERSION)/bin/$(OS)/$(ARCH)/kubectl
 	chmod +x $@
 
+# Downloads are checked against the pinned checksums, so a moved tag can't change what's tested.
+policy-release: $(POLICY_CRD) $(POLICY_CHART)
+
+$(POLICY_CRD):
+	mkdir -p $(POLICY_DIR)
+	curl -fsSL -o $@.tmp $(POLICY_URL)/$(notdir $@)
+	echo "$(POLICY_CRD_SHA256)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+
+$(POLICY_CHART):
+	mkdir -p $(POLICY_DIR)
+	curl -fsSL -o $@.tmp $(POLICY_URL)/$(notdir $@)
+	echo "$(POLICY_CHART_SHA256)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+
+# The chart is assembled in .bin/ because a chart can only read its own files.
+crd-schema: $(CRD_SCHEMA)
+
+$(CRD_SCHEMA): $(POLICY_CRD) $(wildcard test/crd-schema/* test/crd-schema/templates/*) | $(HELM)
+	rm -rf $(BIN)/crd-schema-chart
+	cp -r test/crd-schema $(BIN)/crd-schema-chart
+	cp $(POLICY_CRD) $(BIN)/crd-schema-chart/crd.yaml
+	mkdir -p $(dir $@)
+	$(HELM) template x $(BIN)/crd-schema-chart --show-only templates/schema.yaml \
+	  | sed -e '/^---/d' -e '/^# Source/d' -e '/^$$/d' > $@
+
+# The unquoted-date file is linted here because helm-unittest reads unquoted dates as
+# timestamps, while Helm keeps them strings (exceptions.*.policies.*.expires: 2027-03-31).
 lint: $(HELM)
 	$(HELM) lint --strict $(CHART)
+	$(HELM) lint --strict $(CHART) -f $(CHART)/tests/values/exceptions-unquoted-date.yaml
 	@set -e; for f in $(EXAMPLES); do \
 	  echo "==> helm lint --strict -f $$f"; \
 	  $(HELM) lint --strict $(CHART) -f $$f; \
@@ -107,12 +151,14 @@ unittest: $(UNITTEST_PLUGIN)
 unittest-update: $(UNITTEST_PLUGIN)
 	$(HELM) unittest -u $(UNITTEST_FILES) $(CHART)
 
-validate: $(HELM) $(KUBECONFORM)
+validate: $(HELM) $(KUBECONFORM) $(CRD_SCHEMA)
 	@set -e; for f in $(EXAMPLES); do \
 	  echo "==> kubeconform $$f"; \
 	  $(HELM) template posture $(CHART) -f $$f \
 	    | $(KUBECONFORM) -strict -summary \
-	        -schema-location default -schema-location '$(CRDS_CATALOG)'; \
+	        -schema-location default \
+	        -schema-location '$(SCHEMAS)/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+	        -schema-location '$(CRDS_CATALOG)'; \
 	done
 
 test: lint unittest validate
@@ -124,8 +170,9 @@ test-all-helm:
 	done
 
 # Needs Docker. Extra arguments go to run.sh via E2E_ARGS (e.g. E2E_ARGS=strict).
-e2e: $(HELM) tools-e2e
+e2e: $(HELM) tools-e2e policy-release
 	K3D=$(K3D) KUBECTL=$(KUBECTL) HELM=$(HELM) \
+	POLICY_CRD=$(POLICY_CRD) POLICY_CHART=$(POLICY_CHART) \
 	K3S_IMAGE=$(K3S_IMAGE) CALICO_VERSION=$(CALICO_VERSION) ISTIO_VERSION=$(ISTIO_VERSION) \
 	AGNHOST_IMAGE=$(AGNHOST_IMAGE) CURL_IMAGE=$(CURL_IMAGE) \
 	  test/e2e/run.sh $(MESH) $(E2E_ARGS)

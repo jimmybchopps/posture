@@ -71,7 +71,7 @@ tests:
       mesh: istio
     asserts:
       - matchRegexRaw: { pattern: "admit in-cluster clients by mesh\\s+identity" }
-      - matchRegexRaw: { pattern: "kubectl get networkpolicies,authorizationpolicies.security.istio.io,peerauthentications.security.istio.io -n team" }
+      - matchRegexRaw: { pattern: "kubectl get networkpolicies,authorizationpolicies.security.istio.io,peerauthentications.security.istio.io,policyexceptions.policy.posture.dev -n team" }
       - notMatchRegexRaw: { pattern: WARNING }
 
   - it: warns loudly when authorization is disabled under istio
@@ -144,3 +144,29 @@ tests:
     asserts:
       - matchRegexRaw: { pattern: "inherit: nothing is rendered" }
       - notMatchRegexRaw: { pattern: peerauthentications }
+
+  - it: warns when policy exceptions are disabled
+    set:
+      policyExceptions.enabled: false
+    asserts:
+      - matchRegexRaw: { pattern: "WARNING: policy exceptions are DISABLED \\(policyExceptions.enabled: false\\)" }
+      - notMatchRegexRaw: { pattern: "policyexceptions.policy.posture.dev" }
+
+  - it: lists active exceptions, and the object in the kubectl command
+    set:
+      exceptions.prometheus.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy, expires: "2999-12-31" }
+      exceptions.agent:
+        selector: instance
+        policies: { disallow-host-path: { kind: ValidatingAdmissionPolicy } }
+    asserts:
+      - matchRegexRaw: { pattern: "- disallow-host-path \\(ValidatingAdmissionPolicy\\): app.kubernetes.io/instance=agent, app.kubernetes.io/name=prometheus until 2999-12-31" }
+      - matchRegexRaw: { pattern: "policyexceptions.policy.posture.dev" }
+      - notMatchRegexRaw: { pattern: WARNING }
+
+  - it: warns about expired exceptions
+    set:
+      exceptions.prometheus.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy, expires: "2000-01-01" }
+    asserts:
+      - matchRegexRaw: { pattern: "WARNING: these exceptions have expired" }
+      - matchRegexRaw: { pattern: "- exceptions.prometheus.policies.disallow-host-path \\(expired 2000-01-01\\)" }
+      - notMatchRegexRaw: { pattern: "Policy exceptions \\(posture-exceptions\\)" }

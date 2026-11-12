@@ -17,13 +17,13 @@ tests:
     asserts:
       - notFailedTemplate: {}
 
-  - it: rejects an unknown top-level key (exceptions arrive in phase 4)
+  - it: rejects an unknown top-level key
     set:
-      exceptions:
-        legacy: { policy: require-non-root }
+      exception:
+        legacy: { policies: { require-run-as-non-root: { kind: ValidatingAdmissionPolicy } } }
     asserts:
       - failedTemplate:
-          errorPattern: "exceptions"
+          errorPattern: "exception"
 
   - it: rejects a mesh that isn't supported yet
     set:
@@ -318,3 +318,90 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "exclusions"
+
+  - it: accepts every exceptions field
+    set:
+      policyExceptions.enabled: true
+      exceptions:
+        prometheus:
+          selector: instance
+          policies:
+            disallow-host-path: { kind: ValidatingAdmissionPolicy, reason: why, expires: "2027-03-31", enabled: true }
+            add-default-resources: { kind: MutatingAdmissionPolicy }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects an unknown policyExceptions key
+    set:
+      policyExceptions.enable: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "enable"
+
+  - it: rejects exceptions.any
+    set:
+      exceptions.any.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects exceptions without policies
+    set:
+      exceptions.prometheus: { selector: name }
+    asserts:
+      - failedTemplate:
+          errorPattern: "policies"
+
+  - it: rejects an empty policies map
+    set:
+      exceptions.prometheus.policies: {}
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a policy name that isn't a DNS label
+    set:
+      exceptions.prometheus.policies.Disallow_Host_Path: { kind: ValidatingAdmissionPolicy }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a policy name over 63 characters
+    set:
+      exceptions.prometheus.policies.a-policy-name-that-is-much-longer-than-sixty-three-characters-long: { kind: ValidatingAdmissionPolicy }
+    asserts:
+      - failedTemplate: {}
+
+  - it: requires kind
+    set:
+      exceptions.prometheus.policies.disallow-host-path: { reason: why }
+    asserts:
+      - failedTemplate:
+          errorPattern: "kind"
+
+  - it: rejects an unknown kind
+    set:
+      exceptions.prometheus.policies.disallow-host-path: { kind: ClusterPolicy }
+    asserts:
+      - failedTemplate:
+          errorPattern: "kind"
+
+  - it: rejects a malformed expires
+    set:
+      exceptions.prometheus.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy, expires: "31/03/2027" }
+    asserts:
+      - failedTemplate:
+          errorPattern: "expires"
+
+  - it: rejects a reason over 1024 characters (the CRD's limit)
+    set:
+      exceptions.prometheus.policies.disallow-host-path:
+        kind: ValidatingAdmissionPolicy
+        reason: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    asserts:
+      - failedTemplate:
+          errorPattern: "reason"
+
+  - it: rejects an unknown key on a policy exception
+    set:
+      exceptions.prometheus.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy, namespace: other }
+    asserts:
+      - failedTemplate:
+          errorPattern: "namespace"

@@ -76,8 +76,32 @@ WARNING: these rules match a workload label in every namespace (namespace: any) 
   - {{ . }}
 {{- end }}
 {{- end }}
+{{- with $model.exceptions }}
+{{- if not .enabled }}
+
+WARNING: policy exceptions are DISABLED (policyExceptions.enabled: false).
+  No posture-exceptions object is rendered. Admission policies that read it (paramRef) deny
+  every pod in this namespace. Only for clusters without the PolicyExceptions CRD.
+{{- else }}
+{{- if .expired }}
+
+WARNING: these exceptions have expired and were left out of posture-exceptions at this render;
+  renew (a later expires) or remove them:
+{{- range .expired }}
+  - {{ .rule }} (expired {{ .expires }})
+{{- end }}
+{{- end }}
+{{- with .policies }}
+
+Policy exceptions (posture-exceptions):
+{{- range . }}
+  - {{ .name }} ({{ .kind }}): {{ range $i, $w := .workloads }}{{ if $i }}, {{ end }}{{ range $k, $v := $w.matchLabels }}{{ $k }}={{ $v }}{{ end }}{{ with $w.expires }} until {{ . }}{{ end }}{{ end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 
 See which objects it created, and the rule each one came from:
 
-  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }}{{ if and (eq $model.mesh "istio") (ne $model.mtls.mode "inherit") }},peerauthentications.security.istio.io{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
+  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }}{{ if and (eq $model.mesh "istio") (ne $model.mtls.mode "inherit") }},peerauthentications.security.istio.io{{ end }}{{ if $model.exceptions.enabled }},policyexceptions.policy.posture.dev{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
     -o custom-columns='NAME:.metadata.name,RULE:.metadata.annotations.posture\.dev/rule'

@@ -16,7 +16,8 @@ mesh: none
 trustDomain: cluster.local
 
 # -- Optional prefix for every generated object name ("team-a" gives "team-a-deny-all-ingress").
-#    Empty by default: only one posture release exists per namespace.
+#    Empty by default: only one posture release exists per namespace. Not applied to
+#    posture-exceptions (see policyExceptions).
 namePrefix: ""
 
 # -- NetworkPolicies per direction. Each enabled direction is default-deny (deny-all-ingress,
@@ -74,6 +75,34 @@ allowSameNamespace: true
 # -- Allow egress from every pod to the "dns" destination (kube-dns, 53/UDP and 53/TCP).
 #    Renders allow-egress-from-all-to-dns.
 allowDNS: true
+
+# -- Render posture-exceptions, the PolicyExceptions object (policy.posture.dev/v1alpha1) the
+#    cluster's admission policies read as parameters (paramRef), even when exceptions is
+#    empty: the policies deny pods in a namespace without it (fail closed). The CRD is
+#    installed by the separate policy chart. false only on clusters without that CRD; then
+#    no object is rendered, and non-empty exceptions fail. Independent of mesh.
+#    The name is always posture-exceptions: namePrefix doesn't apply, since the policies look
+#    it up by that exact name.
+policyExceptions:
+  enabled: true
+
+# -- Admission-policy exceptions: workload in this namespace -> the policies it's excepted
+#    from. The workload is matched by label (selector as for ingress rules; default name);
+#    "any" isn't accepted, since an exception never covers every pod.
+#    policies.<name>:  the policy's name, with
+#      kind:     ValidatingAdmissionPolicy | MutatingAdmissionPolicy (required)
+#      reason:   why the workload needs it (optional, shown in the object)
+#      expires:  YYYY-MM-DD, UTC (optional). From the day after, the entry is left out and
+#                NOTES.txt warns. Applied at render: it stops exempting at the next
+#                helm upgrade or GitOps resync, not at midnight.
+#      enabled:  default true; false keeps the entry here but exempts nothing.
+exceptions: {}
+#  prometheus:
+#    policies:
+#      disallow-host-path:
+#        kind: ValidatingAdmissionPolicy
+#        reason: node exporter reads /proc
+#        expires: 2027-03-31
 
 # -- Sources: where ingress traffic can come from, referenced by name under
 #    ingress.<target>.sources. Predefined: monitoring (namespace prometheus, workload

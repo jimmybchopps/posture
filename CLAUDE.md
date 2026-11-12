@@ -320,6 +320,28 @@ Rendered when `mesh: istio`; nothing for `mode: inherit`.
   render fails; into target `any` it can't, and the message suggests PERMISSIVE.
 - `exclusions` with PERMISSIVE or inherit, or with `mesh: none`, fail.
 
+## Rendering rules (policy exceptions)
+
+Independent of `mesh`. The admission policies and the `PolicyExceptions` CRD
+(`policyexceptions.policy.posture.dev`) belong to the separate policy chart
+(github.com/jimmybchopps/policy), which owns the CRD; posture only renders the object, and
+pins to a policy release for its tests (Makefile `POLICY_VERSION`, checksums verified). Each
+policy's bindings read `paramRef: { name: posture-exceptions, parameterNotFoundAction: Deny }`
+from the admitted object's namespace and match the pod's labels against `matchLabels` (the
+CEL is the policy chart's; see its CLAUDE.md, "Exceptions").
+
+- `posture-exceptions` is rendered whenever `policyExceptions.enabled`, **even empty**
+  (`spec.exceptions: []`): the policies deny pods in a namespace without it (fail closed).
+- Values are inverted to policy -> workloads: one entry per policy (sorted by kind, then name),
+  each with one `matchLabels` per workload (sorted by key; one label, from `selector`), plus
+  `reason` and `expires` when set.
+- `enabled: false` entries are left out. Entries whose `expires` is before the render date
+  (UTC) are left out and listed in a NOTES.txt warning; the expiry day itself still counts.
+- Fails: non-empty `exceptions` with `policyExceptions.enabled: false`; an `expires` that isn't
+  a real date; more than the CRD allows (256 policies, 64 workloads per policy).
+- The schema mirrors the CRD: policy names are DNS labels up to 63 characters, `reason` at most
+  1024 characters, `expires` `YYYY-MM-DD`.
+
 ## Naming
 
 Every generated object, of every kind, is named for what it allows, read left to right:
@@ -351,14 +373,15 @@ Fixed objects use the same style:
 | Istio allow-nothing policy | `deny-all-ingress` (AuthorizationPolicy) |
 | mTLS | `mtls-<mode>` for the namespace; `allow-plaintext-to-<workload>` per exclusion (PeerAuthentication and AuthorizationPolicy) |
 | Plaintext under PERMISSIVE | `allow-plaintext-to-all` (AuthorizationPolicy) |
-| exceptions | `posture-exceptions` (PolicyExceptions, `posture.dev/v1alpha1`) |
+| exceptions | `posture-exceptions` (PolicyExceptions, `policy.posture.dev/v1alpha1`); never prefixed |
 
 Rules:
 
 - **The same name across kinds is intended.** The NetworkPolicy and the AuthorizationPolicy
   generated from one rule share its name, so they're easy to find together.
 - **No release prefix.** Only one `posture` release exists per namespace, so names stay
-  readable. A `namePrefix` value (default empty) is there for anyone who needs one.
+  readable. A `namePrefix` value (default empty) is there for anyone who needs one. It never
+  applies to `posture-exceptions`, which the admission policies look up by that exact name.
 - **Keys must be valid name parts.** Lowercase letters, digits, and `-`; anything else is a
   schema error rather than being silently rewritten.
 - **Collisions fail.** If two rules produce the same name (for example, a `from` key and a
@@ -380,15 +403,15 @@ charts/posture/
     validate.yaml         builds the model on every render so bad values always fail
     istio/                authorizationpolicy (phase 2), peerauthentication (phase 3),
                           _authorization.tpl (object, peer and port helpers)
-    linkerd/  cilium/     phase 6
-    exceptions/           the PolicyExceptions object                    (phase 4)
+    linkerd/  cilium/     phase 6 (Linkerd), phase 7 (Cilium)
+    exceptions/           the PolicyExceptions object (posture-exceptions)
     NOTES.txt
   tests/                  helm-unittest suites, one folder per output
-crds-reference/           the PolicyExceptions CRD posture's output relies on (phase 4): the
-                          contract the policy chart installs; never installed by posture
 examples/                 complete values files that double as e2e fixtures
 test/e2e/                 k3d scripts: allowed traffic connects, denied traffic doesn't
 test/model-probe/         test-only chart that prints the model for helm-unittest
+test/crd-schema/          test-only chart that turns the pinned policy release's PolicyExceptions
+                          CRD into the JSON schema kubeconform uses (make crd-schema)
 docs/PLAN.md              build order and open questions
 ```
 
@@ -400,13 +423,20 @@ underlying commands:
 
     helm lint --strict charts/posture
     helm unittest charts/posture                      # plugin: helm-unittest
+    make policy-release                               # fetch + verify the pinned policy chart
+                                                      # (CRD and package) into .bin/
     helm template t charts/posture -f examples/<x>.yaml | kubeconform -strict -summary \
       -schema-location default \
+      -schema-location '.bin/schemas-policy-<version>/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
       -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
     make e2e MESH=none|istio                          # test/e2e/run.sh; needs Docker
                                                       # E2E_KEEP=1 keeps the cluster,
                                                       # E2E_ARGS=strict runs one scenario
     make unittest-update                              # regenerate example snapshots
+
+helm-unittest reads an unquoted date in a values file (`expires: 2027-03-31`) as a timestamp,
+where Helm keeps it a string, so test values quote dates and `make lint` checks the unquoted
+form with real Helm.
 
 Snapshots of every example's output are committed under `charts/posture/tests/__snapshot__/`;
 review the diff before updating them.
@@ -416,6 +446,24 @@ rule change isn't done until an e2e case shows the allowed path connects and a d
 doesn't. k3d clusters for e2e must use Calico or Cilium: k3s's default flannel doesn't enforce
 NetworkPolicy.
 
+Every posture install renders `posture-exceptions`, so every e2e run needs the pinned
+PolicyExceptions CRD. How it gets there depends on the mesh:
+
+- `MESH=none`: run.sh applies the CRD; only the `exceptions` scenario installs the policy
+  chart, and uninstalls it in its teardown.
+- Any mesh: the policy chart goes in after Calico and before the mesh, as on a real cluster,
+  and stays for the whole run. Then come istio-system's exceptions, rendered by posture
+  itself from `test/e2e/values/istio-system.yaml` (add an entry there when a mesh workload is
+  refused), then Istio, with istio-cni in `kube-system`, which the policies never evaluate.
+  Pods are denied in a namespace without `posture-exceptions`, so each scenario namespace gets
+  a posture release that renders only that object (`test/e2e/values/exceptions-only.yaml`)
+  when it's created, as posture is the first release in any namespace; the scenario's
+  `install_posture` upgrades it.
+
+e2e workloads meet the policy chart's baseline under every mesh. Images are listed fully
+qualified, because `restrict-image-registries` matches plain prefixes
+(`test/e2e/values/policy.yaml`).
+
 ## Status
 
 | Phase | Area | Status |
@@ -424,6 +472,7 @@ NetworkPolicy.
 | 1 | Network policies | done (see docs/PLAN.md 1c, "Accepted failures") |
 | 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
-| 4 | Policy exceptions | not started |
+| 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
 | 5 | Boundary integration and egress hostnames (Istio) | not started |
-| 6 | Linkerd and Cilium renderers | not started |
+| 6 | Linkerd renderer | not started |
+| 7 | Cilium renderer | not started |

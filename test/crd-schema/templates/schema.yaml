@@ -1,0 +1,14 @@
+{{- /*
+The JSON schema for the CRD's (only) version: its openAPIV3Schema, with apiVersion and kind
+pinned. Reads crd.yaml, which `make crd-schema` copies next to Chart.yaml from the pinned
+policy release. The same approach as the policy chart's own test/crd-schema.
+*/ -}}
+{{- $crd := .Files.Get "crd.yaml" | fromYaml -}}
+{{- if not $crd.spec -}}{{- fail "crd-schema: crd.yaml is missing; run make crd-schema" -}}{{- end -}}
+{{- if ne (len $crd.spec.versions) 1 -}}{{- fail "crd-schema: the CRD serves more than one version; pick the one posture renders" -}}{{- end -}}
+{{- $version := index $crd.spec.versions 0 -}}
+{{- $schema := deepCopy $version.schema.openAPIV3Schema -}}
+{{- $_ := set $schema.properties "apiVersion" (dict "type" "string" "enum" (list (printf "%s/%s" $crd.spec.group $version.name))) -}}
+{{- $_ := set $schema.properties "kind" (dict "type" "string" "enum" (list $crd.spec.names.kind)) -}}
+{{- $_ := set $schema "required" (list "apiVersion" "kind" "metadata" "spec") -}}
+{{ toJson $schema }}

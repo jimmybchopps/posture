@@ -92,6 +92,26 @@
       "description": "Allow egress from every pod to the dns destination.",
       "type": "boolean"
     },
+    "policyExceptions": {
+      "description": "Render the posture-exceptions PolicyExceptions object (even with no exceptions). false only on clusters without the PolicyExceptions CRD; exceptions then fail.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "exceptions": {
+      "description": "Admission-policy exceptions: workload in this namespace (matched by label) -> the policies it's excepted from.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/definitions/nameNotAny"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/exception"
+      }
+    },
     "sources": {
       "description": "Overrides of predefined sources, and custom sources.",
       "type": "object",
@@ -179,6 +199,65 @@
       "minProperties": 1,
       "additionalProperties": {
         "type": "string"
+      }
+    },
+    "exception": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policies"
+      ],
+      "properties": {
+        "selector": {
+          "$ref": "#/definitions/selector"
+        },
+        "policies": {
+          "description": "Policy name -> the exception. Names follow the PolicyExceptions CRD (a DNS label, at most 63 characters).",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/name"
+              },
+              {
+                "maxLength": 63
+              }
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/policyException"
+          }
+        }
+      }
+    },
+    "policyException": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "ValidatingAdmissionPolicy",
+            "MutatingAdmissionPolicy"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "expires": {
+          "description": "YYYY-MM-DD (UTC). From the day after, the entry is left out at render.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "enabled": {
+          "description": "Default true; false keeps the entry in values but exempts nothing.",
+          "type": "boolean"
+        }
       }
     },
     "exclusionPorts": {

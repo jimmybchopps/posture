@@ -191,3 +191,30 @@ tests:
       ingress.any.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000] }
     asserts:
       - notFailedTemplate: {}
+
+  - it: exceptions with policyExceptions.enabled false fail
+    set:
+      policyExceptions.enabled: false
+      exceptions.prometheus.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: exceptions: prometheus set, but policyExceptions.enabled is false"
+
+  - it: an expires that isn't a real date fails
+    set:
+      exceptions.prometheus.policies.disallow-host-path: { kind: ValidatingAdmissionPolicy, expires: "2027-02-30" }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: exceptions.prometheus.policies.disallow-host-path.expires: "2027-02-30" isn.t a valid date \(YYYY-MM-DD\)'
+
+  - it: more than 64 workloads on one policy fail (the CRD's limit)
+    values: [values/exceptions-65-workloads.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: exceptions: ValidatingAdmissionPolicy disallow-host-path is excepted for 65 workloads; the PolicyExceptions CRD allows at most 64 per policy"
+
+  - it: more than 256 policies fail (the CRD's limit)
+    values: [values/exceptions-257-policies.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: exceptions: 257 policies are excepted; the PolicyExceptions CRD allows at most 256"

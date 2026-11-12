@@ -1,0 +1,42 @@
+{{- /*
+posture-exceptions: the PolicyExceptions object (policy.posture.dev/v1alpha1) the cluster's
+admission policies read as parameters (paramRef name posture-exceptions, from the admitted
+object's namespace). Rendered whenever policyExceptions.enabled, even with no exceptions, so
+the policies' bindings can fail closed (parameterNotFoundAction: Deny) in namespaces without
+posture. The CRD belongs to the policy chart; posture never installs it.
+Independent of mesh. The name is fixed: namePrefix doesn't apply.
+*/ -}}
+{{- $model := include "posture.model" . | fromJson -}}
+{{- with $model.exceptions -}}
+{{- if .enabled }}
+apiVersion: policy.posture.dev/v1alpha1
+kind: PolicyExceptions
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "posture.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "posture.annotations" "exceptions" | nindent 4 }}
+spec:
+  {{- if .policies }}
+  exceptions:
+    {{- range .policies }}
+    - policy: { kind: {{ .kind }}, name: {{ .name }} }
+      workloads:
+        {{- range .workloads }}
+        - matchLabels:
+            {{- toYaml .matchLabels | nindent 12 }}
+          {{- with .reason }}
+          reason: {{ . | quote }}
+          {{- end }}
+          {{- with .expires }}
+          expires: {{ . | quote }}
+          {{- end }}
+        {{- end }}
+    {{- end }}
+  {{- else }}
+  exceptions: []
+  {{- end }}
+{{- end }}
+{{- end }}

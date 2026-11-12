@@ -4,6 +4,7 @@ suite: examples
 templates:
   - templates/networkpolicy/*.yaml
   - templates/istio/*.yaml
+  - templates/exceptions/*.yaml
 release:
   name: posture
   namespace: example
@@ -34,5 +35,9 @@ tests:
       - matchSnapshot: {}
   - it: mtls
     values: [../../../examples/mtls.yaml]
+    asserts:
+      - matchSnapshot: {}
+  - it: exceptions
+    values: [../../../examples/exceptions.yaml]
     asserts:
       - matchSnapshot: {}
