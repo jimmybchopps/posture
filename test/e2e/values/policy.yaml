@@ -1,7 +1,11 @@
-# The pinned policy chart, as the exceptions scenario installs it: the baked-in baseline
-# (always enforced) with the registry the e2e images come from, and every optional policy at
-# audit, so the test pods only have to meet the baseline.
+# The pinned policy chart, as e2e installs it (by the exceptions scenario under MESH=none,
+# before Istio otherwise): the baked-in baseline (always enforced) with the registries the e2e
+# images come from, and every optional policy at audit, so the test pods only have to meet
+# the baseline. Images are matched as plain prefixes, so they're written fully qualified.
 enforcement: audit
 policies:
   restrict-image-registries:
-    registries: [registry.k8s.io/]
+    registries:
+      - registry.k8s.io/          # agnhost
+      - docker.io/curlimages/     # curl (CURL_IMAGE)
+      - docker.io/istio/          # istiod, istio-cni, ztunnel

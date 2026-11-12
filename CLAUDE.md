@@ -403,7 +403,7 @@ charts/posture/
     validate.yaml         builds the model on every render so bad values always fail
     istio/                authorizationpolicy (phase 2), peerauthentication (phase 3),
                           _authorization.tpl (object, peer and port helpers)
-    linkerd/  cilium/     phase 6
+    linkerd/  cilium/     phase 6 (Linkerd), phase 7 (Cilium)
     exceptions/           the PolicyExceptions object (posture-exceptions)
     NOTES.txt
   tests/                  helm-unittest suites, one folder per output
@@ -446,10 +446,21 @@ rule change isn't done until an e2e case shows the allowed path connects and a d
 doesn't. k3d clusters for e2e must use Calico or Cilium: k3s's default flannel doesn't enforce
 NetworkPolicy.
 
-Every e2e run applies the pinned PolicyExceptions CRD (every posture install renders
-`posture-exceptions`); only the `exceptions` scenario installs the policy chart itself, and
-uninstalls it in its teardown, since its baseline policies would refuse the other scenarios'
-workloads.
+Every posture install renders `posture-exceptions`, so every e2e run needs the pinned
+PolicyExceptions CRD. How it gets there depends on the mesh:
+
+- `MESH=none`: run.sh applies the CRD; only the `exceptions` scenario installs the policy
+  chart, and uninstalls it in its teardown.
+- Any mesh: the policy chart goes in after Calico and before the mesh, as on a real cluster,
+  and stays for the whole run. Then come istio-system's exceptions, rendered by posture
+  itself from `test/e2e/values/istio-system.yaml` (add an entry there when a mesh workload is
+  refused), then Istio, with istio-cni in `kube-system`, which the policies never evaluate.
+  Each scenario namespace gets an empty `posture-exceptions` when it's created (pods there are
+  denied without one), and `install_posture` adopts it with `--take-ownership`.
+
+e2e workloads meet the policy chart's baseline under every mesh. Images are listed fully
+qualified, because `restrict-image-registries` matches plain prefixes
+(`test/e2e/values/policy.yaml`).
 
 ## Status
 
@@ -461,4 +472,5 @@ workloads.
 | 3 | mTLS with per-port exclusions | done |
 | 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
 | 5 | Boundary integration and egress hostnames (Istio) | not started |
-| 6 | Linkerd and Cilium renderers | not started |
+| 6 | Linkerd renderer | not started |
+| 7 | Cilium renderer | not started |

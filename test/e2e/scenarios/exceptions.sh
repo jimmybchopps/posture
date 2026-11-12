@@ -8,7 +8,9 @@
 #   legacy      runs as root (require-run-as-non-root), matched by instance  excepted: runs
 #   intruder    node-agent's spec under another name                         refused
 #
-# Not mesh-specific (admission doesn't depend on the mesh), so it runs under every mesh.
+# Not mesh-specific (admission doesn't depend on the mesh), so it runs under every mesh. Under
+# MESH=none it installs the policy chart and removes it in teardown; under a mesh the chart is
+# already installed for the whole run (POLICY_FIRST), and both calls do nothing.
 
 setup() {
   install_policy_chart

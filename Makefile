@@ -15,7 +15,7 @@ CALICO_VERSION        := 3.29.0
 # Istio Helm chart version for `make e2e MESH=istio`; installed by install_istio in test/e2e/lib.sh.
 ISTIO_VERSION         := 1.32.0
 AGNHOST_IMAGE         := registry.k8s.io/e2e-test-images/agnhost:2.61
-CURL_IMAGE            := curlimages/curl:8.23.0
+CURL_IMAGE            := docker.io/curlimages/curl:8.23.0
 MESH                  ?= none
 # The policy chart release posture pins to: its PolicyExceptions CRD (kubeconform, e2e) and its
 # chart package (e2e only). Checksums from the release's SHA256SUMS; bump all three together.

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # posture e2e tests on k3d with Calico: allowed traffic connects, denied traffic doesn't.
 #
+# Setup order:
+#   MESH=none:   cluster, Calico, the PolicyExceptions CRD (every posture install renders
+#                posture-exceptions); only the exceptions scenario installs the policy chart.
+#   MESH=istio:  cluster, Calico, the policy chart (POLICY_FIRST=1: before the mesh, for the
+#                whole run), istio-system's exceptions (values/istio-system.yaml), then Istio.
+#
 # Usage: test/e2e/run.sh <none|istio> [scenario...]
 #   Normally run through `make e2e MESH=none|istio`, which installs the pinned tools and sets
 #   the variables below.
@@ -34,7 +40,9 @@ HELM=${HELM:-helm}
 : "${CURL_IMAGE:?set CURL_IMAGE}"
 : "${POLICY_CRD:?set POLICY_CRD (make e2e sets it)}"
 : "${POLICY_CHART:?set POLICY_CHART (make e2e sets it)}"
-export MESH HERE ROOT CLUSTER K3D KUBECTL HELM POLICY_CRD POLICY_CHART
+POLICY_FIRST=0
+if [[ $MESH != none ]]; then POLICY_FIRST=1; fi
+export MESH HERE ROOT CLUSTER K3D KUBECTL HELM POLICY_CRD POLICY_CHART POLICY_FIRST
 
 # shellcheck source=test/e2e/lib.sh
 source "$HERE/lib.sh"
@@ -52,16 +60,28 @@ trap teardown EXIT
 if [[ ${E2E_REUSE:-0} == 1 ]]; then
   log "reusing cluster ${CLUSTER}"
   "$K3D" kubeconfig merge "$CLUSTER" --kubeconfig-switch-context >/dev/null
+  if [[ $POLICY_FIRST == 1 ]]; then
+    "$HELM" status policy -n policy >/dev/null 2>&1 || die "E2E_REUSE: the policy chart isn't installed in ${CLUSTER}"
+    POLICY_INSTALLED=1
+  fi
 else
   delete_cluster
   create_cluster
   install_cni
-  # TODO(istio): the Istio Helm installation goes in install_istio (test/e2e/lib.sh).
+  if [[ $POLICY_FIRST == 1 ]]; then
+    # As on a real cluster: the policies first (with their CRD), then the mesh's namespace
+    # exceptions, then the mesh, whose workloads are admitted against the baseline.
+    log "installing the policy chart before the mesh"
+    install_policy_chart
+    install_platform_exceptions
+  fi
   if [[ $MESH == istio ]]; then install_istio; fi
 fi
-# Every posture install renders posture-exceptions, so the PolicyExceptions CRD must exist. On
-# its own it changes nothing; only the exceptions scenario installs the policies that read it.
-quiet "$KUBECTL" apply -f "$POLICY_CRD"
+if [[ $POLICY_FIRST == 0 ]]; then
+  # Every posture install renders posture-exceptions, so the PolicyExceptions CRD must exist. On
+  # its own it changes nothing; only the exceptions scenario installs the policies that read it.
+  quiet "$KUBECTL" apply -f "$POLICY_CRD"
+fi
 quiet "$KUBECTL" wait --for=condition=Established crd/policyexceptions.policy.posture.dev --timeout=60s
 start_external
 export EXT_IP

@@ -76,23 +76,32 @@ install_cni() {
   info "Calico and CoreDNS are ready"
 }
 
+# Istio ambient, under the policy chart (installed first, see install_policy_chart): istiod and
+# ztunnel in istio-system, whose posture-exceptions install_platform_exceptions has already
+# rendered; istio-cni in kube-system (required on GKE, and Istio's preferred alternative to
+# istio-system), which the policies never evaluate.
 install_istio() {
   log "installing Istio ${ISTIO_VERSION} (ambient)"
   quiet "$HELM" repo add istio https://blob.istio.io/istio-release/charts --force-update
-  istio_chart istio-base base    --create-namespace
-  istio_chart istiod     istiod  --set profile=ambient
-  istio_chart istio-cni  cni     --set profile=ambient
-  istio_chart ztunnel    ztunnel
-  quiet "$KUBECTL" -n kube-system rollout status daemonset/istio-cni-node --timeout=300s
-  quiet "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s
+  istio_chart istio-system istio-base base
+  istio_chart istio-system istiod     istiod  --set profile=ambient
+  istio_chart kube-system  istio-cni  cni     --set profile=ambient
+  istio_chart istio-system ztunnel    ztunnel
+  quiet "$KUBECTL" -n kube-system rollout status daemonset/istio-cni-node --timeout=300s ||
+    { refused_pods kube-system; return 1; }
+  quiet "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s ||
+    { refused_pods istio-system; return 1; }
   info "istio-cni and ztunnel are ready on every node"
 }
 
-istio_chart() { # istio_chart <release> <chart> [helm args...]
-  local release=$1 chart=$2
-  shift 2
-  quiet "$HELM" install "$release" "istio/$chart" -n istio-system --version "$ISTIO_VERSION" --wait "$@"
-  info "${release} installed"
+istio_chart() { # istio_chart <namespace> <release> <chart> [helm args...]
+  local ns=$1 release=$2 chart=$3
+  shift 3
+  if ! quiet "$HELM" install "$release" "istio/$chart" -n "$ns" --version "$ISTIO_VERSION" --wait "$@"; then
+    refused_pods "$ns"
+    return 1
+  fi
+  info "${release} installed in ${ns}"
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -130,6 +139,10 @@ namespace() {
   if [[ $MESH == istio && ${MESHED:-1} != 0 ]]; then
     "$KUBECTL" label namespace "$ns" istio.io/dataplane-mode=ambient >/dev/null
   fi
+  # Under the policy chart, pods are denied until posture-exceptions exists (fail closed), and
+  # the baseline checks run before posture is installed: an empty one admits them until
+  # install_posture adopts it.
+  if [[ $POLICY_INSTALLED == 1 ]]; then placeholder_exceptions "$ns"; fi
   NAMESPACES+=("$ns")
 }
 
@@ -137,7 +150,9 @@ namespace() {
 # A Deployment whose pods are labeled app.kubernetes.io/name=<name> and run as the
 # ServiceAccount <name>, with a server container (agnhost porter, HTTP on every port, readiness
 # probe on the first) and a client container (curl), plus a Service <name>.<namespace> on the
-# same ports.
+# same ports. It meets the policy chart's baseline (non-root, RuntimeDefault seccomp, no
+# privilege escalation, every capability dropped), under every mesh, so it's admitted whether
+# or not the policy chart is installed.
 #
 # For an impostor, override with environment variables:
 #   LABEL=<name>  pods carry app.kubernetes.io/name=<LABEL> instead; no Service is created
@@ -186,6 +201,10 @@ spec:
     spec:
       serviceAccountName: ${sa}
       terminationGracePeriodSeconds: 1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: server
           image: ${AGNHOST_IMAGE}
@@ -194,9 +213,15 @@ spec:
           readinessProbe:
             tcpSocket: { port: $1 }
             periodSeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
         - name: client
           image: ${CURL_IMAGE}
           command: [sleep, infinity]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
 ${service}
 EOF
 }
@@ -216,11 +241,14 @@ wait_ready() {
 
 # install_posture <namespace> <example file under examples/> [helm args...]
 # Extra arguments go to helm install after the example, e.g. --set networkPolicy.ingress=false.
+# Under the policy chart, --take-ownership adopts the namespace's placeholder posture-exceptions.
 install_posture() {
   local ns=$1 example=$2
   shift 2
+  local adopt=()
+  if [[ $POLICY_INSTALLED == 1 ]]; then adopt=(--take-ownership); fi
   quiet "$HELM" install posture "$ROOT/charts/posture" -n "$ns" \
-    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" "$@" --wait
+    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" "${adopt[@]}" "$@" --wait
   info "posture installed in ${ns} (examples/${example}${*:+ $*})"
 }
 
@@ -376,23 +404,63 @@ run_scenario() {
 # ---------------------------------------------------------------------------------------------
 # Admission (policy exceptions)
 #
-# The pinned policy chart (POLICY_CHART) is installed only by scenarios that need it, and
-# uninstalled in their teardown: its baked-in policies apply to every namespace but kube-system,
-# so they'd refuse the other scenarios' workloads. Its CRD stays (resource-policy: keep), as
-# run.sh's copy must for every later posture install.
+# The pinned policy chart (POLICY_CHART) and its baked-in policies apply to every namespace but
+# kube-system.
+#   MESH=none:  only the exceptions scenario installs it, and uninstalls it in its teardown. Its
+#               CRD stays (resource-policy: keep), as run.sh's copy must for every later
+#               posture install.
+#   otherwise:  POLICY_FIRST=1: run.sh installs it before the mesh, as a real cluster would, so
+#               the mesh's own workloads are admitted against it; it stays for the whole run,
+#               and the scenarios' install and uninstall calls do nothing.
+
+POLICY_FIRST=${POLICY_FIRST:-0}
+POLICY_INSTALLED=0
 
 # install_policy_chart: the policy chart as release "policy" in namespace "policy", with
-# test/e2e/values/policy.yaml. --take-ownership adopts the CRD run.sh applied.
+# test/e2e/values/policy.yaml. --take-ownership adopts the CRD run.sh applied under MESH=none.
 install_policy_chart() {
+  if [[ $POLICY_INSTALLED == 1 ]]; then return 0; fi
   quiet "$HELM" install policy "$POLICY_CHART" -n policy --create-namespace \
     -f "$HERE/values/policy.yaml" --take-ownership --wait
+  POLICY_INSTALLED=1
   info "policy chart installed ($(basename "$POLICY_CHART"))"
 }
 
 uninstall_policy_chart() {
+  if [[ $POLICY_FIRST == 1 || $POLICY_INSTALLED == 0 ]]; then return 0; fi
   quiet "$HELM" uninstall policy -n policy --wait
   "$KUBECTL" delete namespace policy --wait=false >/dev/null 2>&1 || true
+  POLICY_INSTALLED=0
   info "policy chart uninstalled (its CRD is kept)"
+}
+
+# install_platform_exceptions: istio-system's posture-exceptions, from
+# test/e2e/values/istio-system.yaml, rendered by posture itself before Istio is installed.
+install_platform_exceptions() {
+  "$KUBECTL" create namespace istio-system >/dev/null
+  quiet "$HELM" install posture "$ROOT/charts/posture" -n istio-system \
+    -f "$HERE/values/istio-system.yaml" --wait
+  info "posture-exceptions installed in istio-system (test/e2e/values/istio-system.yaml)"
+}
+
+# placeholder_exceptions <namespace>: an empty posture-exceptions, for pods created before
+# posture is installed; install_posture adopts and replaces it.
+placeholder_exceptions() {
+  quiet "$KUBECTL" apply -f - <<EOF
+apiVersion: policy.posture.dev/v1alpha1
+kind: PolicyExceptions
+metadata: { name: posture-exceptions, namespace: $1 }
+spec: { exceptions: [] }
+EOF
+}
+
+# refused_pods <namespace>: the admission refusals there (FailedCreate events name the policy);
+# a refused DaemonSet or ReplicaSet pod otherwise only shows up as a timeout.
+refused_pods() {
+  local events
+  events=$("$KUBECTL" -n "$1" get events --field-selector reason=FailedCreate \
+    -o custom-columns=OBJECT:.involvedObject.name,MESSAGE:.message --no-headers 2>/dev/null)
+  if [[ -n $events ]]; then printf '\n--- pods refused in %s\n%s\n' "$1" "$events" >&2; fi
 }
 
 # admitted <message> <namespace> <pod>: the manifest on stdin is accepted and the pod becomes
@@ -431,6 +499,7 @@ dump_state() {
     printf '\n--- namespace %s\n' "$ns"
     "$KUBECTL" -n "$ns" get pods -o wide 2>&1 || true
     "$KUBECTL" -n "$ns" get networkpolicies 2>&1 || true
+    refused_pods "$ns"
   done
   if [[ ${E2E_KEEP:-0} != 1 ]]; then
     printf '\n(rerun with E2E_KEEP=1 E2E_ARGS=<scenario> to keep these namespaces for inspection)\n'
