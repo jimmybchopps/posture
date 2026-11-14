@@ -285,3 +285,46 @@ tests:
       - equal:
           path: spec.ingress[0].from
           value: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: gateway } } }]
+
+  # Egress to hostnames: one rule to the waypoint, whatever the number of entries
+  - it: allowedHosts adds one rule from every pod to the egress waypoint
+    set:
+      mesh: istio
+      egress.allowedHosts:
+        github: { hosts: [api.github.com], ports: [443] }
+        mirror: { hosts: [mirror.example.com], ports: [80], protocol: HTTP }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-egress-gateway }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: egress.allowedHosts }
+      - equal: { path: spec.podSelector, value: {} }
+      - equal:
+          path: spec.egress[0].to
+          value: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: egress-gateway } } }]
+      - equal: { path: 'spec.egress[0].ports', value: [{ port: 15008, protocol: TCP }] }
+
+  - it: allowedHosts with every entry disabled renders no waypoint rule
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], enabled: false }
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: the waypoint rule follows an overridden egress-gateway destination
+    set:
+      mesh: istio
+      destinations.egress-gateway: { namespace: egress, workload: waypoint }
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - equal:
+          path: spec.egress[0].to
+          value:
+            - podSelector: { matchLabels: { app.kubernetes.io/name: waypoint } }
+              namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: egress } }
+
+  - it: the waypoint rule is skipped with NetworkPolicy egress off
+    set:
+      mesh: istio
+      networkPolicy.egress: false
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - hasDocuments: { count: 0 }

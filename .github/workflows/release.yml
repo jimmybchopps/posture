@@ -1,0 +1,49 @@
+name: release
+
+# Pushing a tag v<version> releases that version: the tag must match charts/posture/Chart.yaml,
+# and CHANGELOG.md must have that version's section, no longer marked (unreleased). The tagged
+# commit is expected to have passed CI (ci.yml, including e2e); this runs the static suite again
+# and builds the assets (test/release/build-dist.sh), then creates the GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      HELM_VERSION: "4.3.1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: tag matches Chart.yaml and CHANGELOG.md
+        run: test/release/check-tag.sh "$GITHUB_REF_NAME" charts/posture CHANGELOG.md
+
+      - uses: actions/cache@v6
+        with:
+          path: .bin
+          key: tools-${{ runner.os }}-helm-${{ env.HELM_VERSION }}-${{ hashFiles('Makefile') }}
+
+      - name: Install tools
+        run: make tools
+
+      - name: make test
+        run: make test
+
+      - name: build the release assets
+        run: make release-check TAG="$GITHUB_REF_NAME"
+
+      - name: create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "posture $version" \
+            --notes-file dist/RELEASE_NOTES.md \
+            "dist/posture-${version}.tgz" \
+            dist/SHA256SUMS

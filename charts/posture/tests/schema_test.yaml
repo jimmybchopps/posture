@@ -523,3 +523,70 @@ tests:
       egress.any: { enabled: false }
     asserts:
       - notFailedTemplate: {}
+
+  # Egress to hostnames (egress.allowedHosts)
+  - it: accepts allowedHosts entries
+    set:
+      mesh: istio
+      egress.allowedHosts:
+        github: { hosts: [api.github.com], ports: [443], protocol: TLS, gateway: legacy, enabled: true }
+        content: { hosts: ["*.githubusercontent.com"], ports: [443] }
+        db: { addresses: [203.0.113.10, 198.51.100.0/24, "2001:db8::/32"], ports: [5432], protocol: TCP }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects port objects in allowedHosts
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [{ port: 443 }] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/github/ports/0"
+
+  - it: rejects named ports in allowedHosts
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [https] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/github/ports/0"
+
+  - it: rejects a URL as a host
+    set:
+      egress.allowedHosts.github: { hosts: ["https://api.github.com"], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/github/hosts/0"
+
+  - it: rejects a wildcard that isn't the leading label
+    set:
+      egress.allowedHosts.github: { hosts: ["a.*.com"], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/github/hosts/0"
+
+  - it: rejects a bad address
+    set:
+      egress.allowedHosts.db: { addresses: [203.0.113.300], ports: [5432], protocol: TCP }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/db/addresses/0"
+
+  - it: rejects an unknown protocol
+    set:
+      egress.allowedHosts.db: { addresses: [203.0.113.10], ports: [5432], protocol: UDP }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/db/protocol"
+
+  - it: rejects an unknown field in an allowedHosts entry
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], host: api.github.com }
+    asserts:
+      - failedTemplate:
+          errorPattern: "host"
+
+  - it: allowedHosts is reserved under egress only
+    set:
+      ingress.allowedHosts.from.any: { ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts"

@@ -236,3 +236,38 @@ tests:
         documentIndex: 0
       - equal: { path: rule, value: ingress.grafana.from.keycloak }
         documentIndex: 1
+
+  - it: no allowedHosts by default
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: allowedHosts, value: [] }
+
+  - it: carries allowedHosts, normalized, and one rule to the waypoint
+    set:
+      posture:
+        mesh: istio
+        allowDNS: false
+        egress:
+          allowedHosts:
+            github: { hosts: [api.github.com], ports: [443, 443] }
+            content: { hosts: ["*.githubusercontent.com"], ports: [443], gateway: legacy }
+            db: { addresses: [203.0.113.10], ports: [5432], protocol: TCP }
+            retired: { hosts: [old.example.com], ports: [443], enabled: false }
+    asserts:
+      - hasDocuments: { count: 2 }
+      - equal:
+          path: allowedHosts
+          value:
+            - { key: content, name: allow-egress-from-all-to-content, rule: egress.allowedHosts.content, profile: "", hosts: ["*.githubusercontent.com"], ports: [443], protocol: TLS, gateway: legacy, waypointNamespace: egress-gateway, resolution: DYNAMIC_DNS }
+            - { key: db, name: allow-egress-from-all-to-db, rule: egress.allowedHosts.db, profile: "", addresses: [203.0.113.10], ports: [5432], protocol: TCP, gateway: default, waypointNamespace: egress-gateway, resolution: NONE }
+            - { key: github, name: allow-egress-from-all-to-github, rule: egress.allowedHosts.github, profile: "", hosts: [api.github.com], ports: [443], protocol: TLS, gateway: default, waypointNamespace: egress-gateway, resolution: DNS }
+        documentIndex: 0
+      - equal: { path: disabled, value: [{ rule: egress.allowedHosts.retired, profile: "" }] }
+        documentIndex: 0
+      - equal: { path: name, value: allow-egress-from-all-to-egress-gateway }
+        documentIndex: 1
+      - equal: { path: rule, value: egress.allowedHosts }
+        documentIndex: 1
+      - equal: { path: profile, value: "" }
+        documentIndex: 1
+

@@ -536,13 +536,39 @@ Decisions made in 5c:
   with `apiServerCidrs` set to the k3d Docker network at run time, and the release is upgraded
   to `mesh: istio` after Istio is installed. The gateway profiles' e2e is 5e's, with `boundary`.
 
-### 5d. Egress to hostnames
+### 5d. Egress to hostnames, and release 0.1.0
 
-- [ ] `egress.allowedHosts` as described in CLAUDE.md ("Egress to hostnames"): the reserved key,
+- [x] `egress.allowedHosts` as described in CLAUDE.md ("Egress to hostnames"): the reserved key,
       the shared shape, one ServiceEntry per enabled entry, the namespace-wide NetworkPolicy to
       the waypoint, and the non-istio `fail`.
-- [ ] Unit tests: every protocol, `hosts` vs `addresses`, the `TCP` + `hosts` failure,
+- [x] Unit tests: every protocol, `hosts` vs `addresses`, the `TCP` + `hosts` failure,
       `gateway` override, the egress-gateway destination namespace override.
+- [x] Release machinery, as in the policy repo: `CHANGELOG.md`, `test/release/` (tag check,
+      notes, `build-dist.sh`, and their cases in `make test`), `make release-check`, and
+      `.github/workflows/release.yml` on a `v<version>` tag.
+- [ ] Release 0.1.0: remove `(unreleased)` from its changelog section, merge, tag `v0.1.0`.
+
+Decisions made in 5d:
+
+- `protocol` defaults to `TLS`: the common case, matched by SNI, and the only one that keeps
+  the traffic encrypted end to end.
+- `ports` are plain numbers, not port objects: the protocol belongs to the entry, ServiceEntry
+  ports have no ranges, and ztunnel carries no UDP.
+- Resolution follows the hosts: `DNS` for exact names, `DYNAMIC_DNS` for wildcards (Istio's
+  mode for wildcard hosts through a waypoint), `NONE` for addresses. One entry can't mix
+  wildcard and exact hosts.
+- ServiceEntry always needs `hosts`, so an `addresses` entry gets
+  `<entry>.<namespace>.posture.internal`, which is never resolved.
+- `meshMember: false` with an enabled entry fails, like `mesh: none`: the namespace's pods
+  aren't captured by ztunnel, so they'd never reach the waypoint.
+- The waypoint NetworkPolicy is an ordinary model rule (`egress.allowedHosts`), so the
+  existing renderer, 15008 handling, `networkPolicy.egress`, and collision check all apply.
+  Its `posture.dev/profile` is set only when every enabled entry came from one profile.
+- The `egress-gateway` destination must stay a workload in one namespace (its namespace is the
+  ServiceEntries' `use-waypoint-namespace`).
+- No e2e in 5d: it needs `boundary`'s waypoint, so it's 5e's. 0.1.0 ships with that, the gateway
+  profiles' e2e, and the one accepted failure listed as known limitations in the changelog.
+- `Chart.yaml` drops the `linkerd` and `cilium` keywords until phases 6 and 7.
 
 ### 5e. Boundary integration
 

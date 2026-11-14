@@ -354,3 +354,118 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "posture: mtls.exclusions.api: exclusions need this namespace in the mesh data plane; meshMember is false"
+
+  # Egress to hostnames (egress.allowedHosts)
+  - it: allowedHosts with TCP and hosts fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], protocol: TCP }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: TCP can't be matched by host name; use addresses, or protocol TLS or HTTP"
+
+  - it: allowedHosts with both hosts and addresses fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com], addresses: [203.0.113.10], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: set hosts or addresses, not both"
+
+  - it: allowedHosts with neither hosts nor addresses fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: hosts or addresses is required"
+
+  - it: allowedHosts without ports fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: ports are required"
+
+  - it: allowedHosts mixing wildcard and exact hosts fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com, "*.githubusercontent.com"], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: wildcard and exact hosts need different resolutions"
+
+  - it: allowedHosts needs mesh istio
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: egress to hostnames needs mesh: istio .*; mesh is none$"
+
+  - it: allowedHosts needs meshMember
+    set:
+      mesh: istio
+      meshMember: false
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: egress to hostnames needs this namespace in the mesh data plane .*; meshMember is false"
+
+  - it: a disabled allowedHosts entry skips the mesh check
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a disabled allowedHosts entry still gets the structural checks
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], protocol: TCP, ports: [443], enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "TCP can't be matched by host name"
+
+  - it: allowedHosts needs egress-gateway in one namespace (cidrs)
+    set:
+      mesh: istio
+      destinations.egress-gateway: { cidrs: [10.0.0.0/8] }
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: destinations.egress-gateway must be a workload in one namespace"
+
+  - it: allowedHosts needs egress-gateway in one namespace (namespace any)
+    set:
+      mesh: istio
+      destinations.egress-gateway: { namespace: any }
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "destinations.egress-gateway must be a workload in one namespace"
+
+  - it: an allowedHosts entry colliding with a destination reference fails
+    set:
+      mesh: istio
+      destinations.github: { cidrs: [192.0.2.0/24], ports: [443] }
+      egress.any.destinations.github: {}
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.any.destinations.github and egress.allowedHosts.github both produce the object name "allow-egress-from-all-to-github"'
+
+  - it: an allowedHosts entry named egress-gateway collides with the waypoint rule
+    set:
+      mesh: istio
+      egress.allowedHosts.egress-gateway: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.allowedHosts and egress.allowedHosts.egress-gateway both produce the object name "allow-egress-from-all-to-egress-gateway"'
+
+  - it: an explicit egress-gateway reference from every pod collides with the waypoint rule
+    set:
+      mesh: istio
+      egress.any.destinations.egress-gateway: {}
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.any.destinations.egress-gateway and egress.allowedHosts both produce"

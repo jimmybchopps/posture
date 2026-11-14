@@ -14,6 +14,9 @@ Shape:
   mtls:                                   # see posture.mtls
     mode: STRICT | PERMISSIVE | inherit
     exclusions: [{ key, name, rule, profile, labels, ports: [int] }]   # allow-plaintext-to-<key>
+  allowedHosts:                           # see posture.allowedHosts; enabled entries only
+    - { key, name, rule, profile, hosts | addresses, ports: [int], protocol, gateway,
+        waypointNamespace, resolution }
   exceptions:                             # see posture.exceptions
     enabled: true                         # policyExceptions.enabled: render posture-exceptions
     name: posture-exceptions              # fixed; namePrefix doesn't apply
@@ -31,7 +34,8 @@ Shape:
     mtlsNamespace: { name, rule }         # mtls-<mode> (a mesh, mode not inherit)
     plaintextAll:  { name, rule }         # allow-plaintext-to-all (a mesh, mode PERMISSIVE)
   disabled: [{ rule, profile }]           # entries with enabled: false (theirs or a parent's),
-                                          # validated but not rendered; rules, then exclusions
+                                          # validated but not rendered; rules, allowedHosts,
+                                          # then exclusions
   rules:                                  # one per target and peer pair, in values order
     - name: allow-ingress-from-keycloak-to-grafana
       rule: ingress.grafana.from.keycloak # the posture.dev/rule annotation
@@ -370,7 +374,7 @@ whole mesh. A custom root namespace (meshConfig.rootNamespace) isn't detected. *
   {{- end -}}
 {{- end -}}
 
-{{- range $key, $rule := $v.egress -}}
+{{- range $key, $rule := omit ($v.egress | default dict) "allowedHosts" -}}
   {{- $path := printf "egress.%s" $key -}}
   {{- if not (or $rule.to $rule.destinations) -}}
     {{- fail (printf "posture: %s: needs to or destinations" $path) -}}
@@ -386,6 +390,22 @@ whole mesh. A custom root namespace (meshConfig.rootNamespace) isn't detected. *
     {{- $_ := include "posture.lookupDefinition" (dict "kind" "destination" "name" $name "definitions" $destinations "rule" $rulePath "mesh" $mesh "enabled" $on "out" $found) -}}
     {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "egress" "rule" $rulePath "target" $target "peerKey" $name "peerSpec" $found.definition "peerToken" $name "defaultSelector" "name" "ports" $found.definition.ports "enabled" $on) -}}
   {{- end -}}
+{{- end -}}
+
+{{- /* Egress to hostnames: one ServiceEntry per enabled entry, and one rule to the waypoint. */ -}}
+{{- $hostsOut := dict -}}
+{{- $_ := include "posture.allowedHosts" (dict "root" $root "values" $v "mesh" $mesh "member" $member "origins" $origins "destinations" $destinations "out" $hostsOut) -}}
+{{- range $hostsOut.disabled -}}
+  {{- $_ := set $acc "disabled" (append $acc.disabled .) -}}
+{{- end -}}
+{{- $waypointProfile := "" -}}
+{{- if $hostsOut.allowedHosts -}}
+  {{- $found := dict -}}
+  {{- $_ := include "posture.lookupDefinition" (dict "kind" "destination" "name" "egress-gateway" "definitions" $destinations "rule" "egress.allowedHosts" "mesh" $mesh "enabled" true "out" $found) -}}
+  {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "egress" "rule" "egress.allowedHosts" "target" (dict "key" "any" "labels" (dict)) "peerKey" "egress-gateway" "peerSpec" $found.definition "peerToken" "egress-gateway" "defaultSelector" "name" "ports" $found.definition.ports "enabled" true) -}}
+  {{- $entryProfiles := dict -}}
+  {{- range $hostsOut.allowedHosts -}}{{- $_ := set $entryProfiles .profile true -}}{{- end -}}
+  {{- if eq (len $entryProfiles) 1 -}}{{- $waypointProfile = keys $entryProfiles | first -}}{{- end -}}
 {{- end -}}
 
 {{- if $v.allowDNS -}}
@@ -407,14 +427,20 @@ whole mesh. A custom root namespace (meshConfig.rootNamespace) isn't detected. *
 {{- $mtlsOut := dict -}}
 {{- $_ := include "posture.mtls" (dict "root" $root "values" $v "mesh" $mesh "member" $member "origins" $origins "modeProfile" (get $fixedProfile "mtls.mode") "rules" $acc.rules "fixed" $fixed "out" $mtlsOut) -}}
 
-{{- $_ := include "posture.checkCollisions" (dict "fixed" $fixed "rules" (concat $acc.rules $mtlsOut.mtls.exclusions)) -}}
+{{- $_ := include "posture.checkCollisions" (dict "fixed" $fixed "rules" (concat $acc.rules $mtlsOut.mtls.exclusions $hostsOut.allowedHosts)) -}}
 
 {{- $exceptionsOut := dict -}}
 {{- $_ := include "posture.exceptions" (dict "root" $root "values" $v "origins" $origins "out" $exceptionsOut) -}}
 
 {{- /* Which profile each rule and disabled entry came from (posture.dev/profile). */ -}}
 {{- range $acc.rules -}}
-  {{- $_ := set . "profile" (ternary (get $fixedProfile "allowDNS") (get $origins .rule | default "") (eq .rule "allowDNS")) -}}
+  {{- if eq .rule "allowDNS" -}}
+    {{- $_ := set . "profile" (get $fixedProfile "allowDNS") -}}
+  {{- else if eq .rule "egress.allowedHosts" -}}
+    {{- $_ := set . "profile" $waypointProfile -}}
+  {{- else -}}
+    {{- $_ := set . "profile" (get $origins .rule | default "") -}}
+  {{- end -}}
 {{- end -}}
 {{- $disabled := $acc.disabled -}}
 {{- range $mtlsOut.mtls.disabled -}}{{- $disabled = append $disabled . -}}{{- end -}}
@@ -429,6 +455,7 @@ whole mesh. A custom root namespace (meshConfig.rootNamespace) isn't detected. *
   "networkPolicy" (dict "ingress" $v.networkPolicy.ingress "egress" $v.networkPolicy.egress)
   "authorization" (dict "enabled" $v.authorization.enabled)
   "mtls" (omit $mtlsOut.mtls "disabled")
+  "allowedHosts" $hostsOut.allowedHosts
   "exceptions" $exceptionsOut.exceptions
   "allowSameNamespace" $v.allowSameNamespace
   "meshMember" $member
@@ -523,6 +550,94 @@ Input: dict "root" "values" (effective) "mesh" "member" "origins" "modeProfile" 
   {{- end -}}
 {{- end -}}
 {{- $_ := set .out "mtls" (dict "mode" $mode "exclusions" $exclusions "disabled" $disabled) -}}
+{{- end -}}
+
+{{/*
+Egress to hostnames (egress.allowedHosts, CLAUDE.md "Egress to hostnames"): hosts outside the
+cluster this namespace may reach through the egress waypoint. Each enabled entry becomes a
+ServiceEntry; posture.model adds the one rule to the waypoint (allow-egress-from-all-to-
+egress-gateway) when any entry is enabled.
+Structural checks (hosts or addresses, ports, TCP with hosts, wildcards mixed with exact hosts)
+apply to disabled entries too; the mesh and meshMember checks only to enabled ones.
+resolution: DNS for exact hosts, DYNAMIC_DNS for wildcards (resolved from SNI or Host at the
+waypoint), NONE for addresses. ServiceEntry always needs hosts, so an addresses entry gets
+<key>.<namespace>.posture.internal, which is never resolved.
+The waypoint's namespace is the egress-gateway destination's, so overriding it moves both the
+ServiceEntry label and the NetworkPolicy.
+Input: dict "root" "values" (effective) "mesh" "member" "origins" "destinations" (resolved)
+"out"; sets out.allowedHosts:
+  [{ key, name, rule, profile, hosts | addresses, ports: [int], protocol, gateway,
+     waypointNamespace, resolution }]
+and out.disabled: [{ rule }].
+*/}}
+{{- define "posture.allowedHosts" -}}
+{{- $root := .root -}}
+{{- $entries := get (.values.egress | default dict) "allowedHosts" | default dict -}}
+{{- $result := list -}}
+{{- $disabled := list -}}
+{{- range $key, $entry := $entries -}}
+  {{- $path := printf "egress.allowedHosts.%s" $key -}}
+  {{- $entry = $entry | default dict -}}
+  {{- $hasHosts := hasKey $entry "hosts" -}}
+  {{- $hasAddresses := hasKey $entry "addresses" -}}
+  {{- if and $hasHosts $hasAddresses -}}
+    {{- fail (printf "posture: %s: set hosts or addresses, not both" $path) -}}
+  {{- end -}}
+  {{- if not (or $entry.hosts $entry.addresses) -}}
+    {{- fail (printf "posture: %s: hosts or addresses is required (a non-empty list)" $path) -}}
+  {{- end -}}
+  {{- if not $entry.ports -}}
+    {{- fail (printf "posture: %s: ports are required (a non-empty list)" $path) -}}
+  {{- end -}}
+  {{- $protocol := $entry.protocol | default "TLS" -}}
+  {{- if and $hasHosts (eq $protocol "TCP") -}}
+    {{- fail (printf "posture: %s: TCP can't be matched by host name; use addresses, or protocol TLS or HTTP" $path) -}}
+  {{- end -}}
+  {{- $resolution := "NONE" -}}
+  {{- if $hasHosts -}}
+    {{- $wildcards := 0 -}}
+    {{- range $entry.hosts -}}{{- if hasPrefix "*" . -}}{{- $wildcards = add1 $wildcards -}}{{- end -}}{{- end -}}
+    {{- if and $wildcards (ne (int $wildcards) (len $entry.hosts)) -}}
+      {{- fail (printf "posture: %s: wildcard and exact hosts need different resolutions (DYNAMIC_DNS and DNS); split the wildcard hosts into their own entry" $path) -}}
+    {{- end -}}
+    {{- $resolution = ternary "DYNAMIC_DNS" "DNS" (gt (int $wildcards) 0) -}}
+  {{- end -}}
+  {{- $on := eq (include "posture.enabled" $entry) "true" -}}
+  {{- if not $on -}}
+    {{- $disabled = append $disabled (dict "rule" $path) -}}
+  {{- else -}}
+    {{- if ne $.mesh "istio" -}}
+      {{- fail (printf "posture: %s: egress to hostnames needs mesh: istio (it routes through Istio's egress waypoint); mesh is %s" $path $.mesh) -}}
+    {{- end -}}
+    {{- if not $.member -}}
+      {{- fail (printf "posture: %s: egress to hostnames needs this namespace in the mesh data plane (pods outside it never reach the waypoint); meshMember is false" $path) -}}
+    {{- end -}}
+    {{- $gw := get $.destinations "egress-gateway" -}}
+    {{- if or (hasKey $gw "cidrs") (eq ($gw.namespace | default "") "any") -}}
+      {{- fail (printf "posture: %s: destinations.egress-gateway must be a workload in one namespace (the waypoint's), not cidrs or namespace: any" $path) -}}
+    {{- end -}}
+    {{- $ports := list -}}
+    {{- range $entry.ports -}}{{- $ports = append $ports (int .) -}}{{- end -}}
+    {{- $e := dict
+      "key" $key
+      "name" (include "posture.name" (dict "root" $root "rule" $path "direction" "egress" "source" "all" "destination" $key))
+      "rule" $path
+      "profile" (get $.origins $path | default "")
+      "ports" ($ports | uniq)
+      "protocol" $protocol
+      "gateway" ($entry.gateway | default "default")
+      "waypointNamespace" ($gw.namespace | default $root.Release.Namespace)
+      "resolution" $resolution -}}
+    {{- if $hasHosts -}}
+      {{- $_ := set $e "hosts" $entry.hosts -}}
+    {{- else -}}
+      {{- $_ := set $e "addresses" $entry.addresses -}}
+    {{- end -}}
+    {{- $result = append $result $e -}}
+  {{- end -}}
+{{- end -}}
+{{- $_ := set .out "allowedHosts" $result -}}
+{{- $_ := set .out "disabled" $disabled -}}
 {{- end -}}
 
 {{/*

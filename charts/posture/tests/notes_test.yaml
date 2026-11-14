@@ -219,3 +219,23 @@ tests:
   - it: the kubectl command shows each object's profile
     asserts:
       - matchRegexRaw: { pattern: "PROFILE:.metadata.annotations.posture\\\\.dev/profile" }
+
+  - it: lists egress to hostnames and adds ServiceEntries to the kubectl command
+    set:
+      mesh: istio
+      egress.allowedHosts:
+        github: { hosts: [api.github.com], ports: [443] }
+        db: { addresses: [203.0.113.10], ports: [5432, 5433], protocol: TCP, gateway: legacy }
+    asserts:
+      - matchRegexRaw: { pattern: "Egress to hostnames \\(egress.allowedHosts\\), through the egress waypoint" }
+      - matchRegexRaw: { pattern: "- github: api.github.com on 443 \\(TLS\\) via egress-gateway/default" }
+      - matchRegexRaw: { pattern: "- db: 203.0.113.10 on 5432, 5433 \\(TCP\\) via egress-gateway/legacy" }
+      - matchRegexRaw: { pattern: "serviceentries.networking.istio.io" }
+
+  - it: no hostnames section or ServiceEntries without enabled entries
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], enabled: false }
+    asserts:
+      - notMatchRegexRaw: { pattern: "Egress to hostnames" }
+      - notMatchRegexRaw: { pattern: "serviceentries" }
+      - matchRegexRaw: { pattern: "- egress.allowedHosts.github\n" }

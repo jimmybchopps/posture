@@ -1,0 +1,28 @@
+{{- /*
+Egress to hostnames (egress.allowedHosts), Istio ambient: one ServiceEntry per enabled entry,
+visible only in this namespace (exportTo "."), routed through the egress waypoint by the
+istio.io/use-waypoint labels. The waypoint (boundary's) checks the host against its own list,
+so this only asks for a host, never grants one. The NetworkPolicy that lets every pod reach
+the waypoint on 15008 is an ordinary model rule (allow-egress-from-all-to-egress-gateway).
+The model has already failed for any mesh other than istio and for meshMember false.
+*/ -}}
+{{- $model := include "posture.model" . | fromJson -}}
+{{- range $model.allowedHosts -}}
+  {{- $entry := . -}}
+  {{- $ports := list -}}
+  {{- range .ports -}}
+    {{- $ports = append $ports (dict "number" (int .) "name" (printf "%s-%d" (lower $entry.protocol) (int .)) "protocol" $entry.protocol) -}}
+  {{- end -}}
+  {{- $spec := dict "location" "MESH_EXTERNAL" "resolution" .resolution "exportTo" (list ".") "ports" $ports -}}
+  {{- if .hosts -}}
+    {{- $_ := set $spec "hosts" .hosts -}}
+  {{- else -}}
+    {{- $_ := set $spec "hosts" (list (printf "%s.%s.posture.internal" .key $model.namespace)) -}}
+    {{- $_ := set $spec "addresses" .addresses -}}
+  {{- end }}
+---
+{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "profile" .profile
+  "apiVersion" "networking.istio.io/v1" "kind" "ServiceEntry"
+  "labels" (dict "istio.io/use-waypoint" .gateway "istio.io/use-waypoint-namespace" .waypointNamespace)
+  "spec" $spec) }}
+{{- end -}}

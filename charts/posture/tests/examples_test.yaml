@@ -53,3 +53,7 @@ tests:
     values: [../../../examples/profile-istio-egress.yaml]
     asserts:
       - matchSnapshot: {}
+  - it: allowed-hosts
+    values: [../../../examples/allowed-hosts.yaml]
+    asserts:
+      - matchSnapshot: {}

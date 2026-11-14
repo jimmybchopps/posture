@@ -1,8 +1,10 @@
 {{- /*
-Test-only: posture.deepMerge and posture.layerProfiles, called directly, so their rules can be
+Test-only: posture.deepMerge, posture.layerProfiles, and posture.allowedHosts, called directly, so their rules can be
 tested without a built-in profile that exercises them (conflicts, forbidden keys).
   mergeTest:  { base, over }            -> kind: Merge, result
   layerTest:  [{ name, values }, ...]   -> kind: Layer, layer, origins
+  allowedHostsTest: { values, origins } -> kind: AllowedHosts, allowedHosts, disabled
+                                           (mesh istio, a member, the preset egress-gateway)
 Renders nothing unless the key is set.
 */ -}}
 {{- with .Values.mergeTest -}}
@@ -17,4 +19,14 @@ kind: Merge
 {{- $_ := include "posture.layerProfiles" (dict "outputs" . "out" $out) }}
 kind: Layer
 {{ toYaml (dict "layer" $out.layer "origins" $out.origins) }}
+{{- end -}}
+{{- with .Values.allowedHostsTest }}
+---
+{{- $root := dict "Values" (dict) "Release" $.Release "Chart" $.Chart -}}
+{{- $defs := dict -}}
+{{- $_ := include "posture.resolveDefinitions" (dict "kind" "destinations" "presets" (include "posture.presets.destinations" $root | fromYaml) "user" (dict) "out" $defs) -}}
+{{- $out := dict -}}
+{{- $_ := include "posture.allowedHosts" (dict "root" $root "values" .values "mesh" "istio" "member" true "origins" (.origins | default dict) "destinations" $defs.definitions "out" $out) }}
+kind: AllowedHosts
+{{ toYaml (dict "allowedHosts" $out.allowedHosts "disabled" $out.disabled) }}
 {{- end -}}

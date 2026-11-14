@@ -1,3 +1,312 @@
+allowed-hosts:
+  1: |
+    apiVersion: policy.posture.dev/v1alpha1
+    kind: PolicyExceptions
+    metadata:
+      annotations:
+        posture.dev/rule: exceptions
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: posture-exceptions
+      namespace: example
+    spec:
+      exceptions: []
+  2: |
+    apiVersion: security.istio.io/v1
+    kind: AuthorizationPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: authorization.enabled
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: deny-all-ingress
+      namespace: example
+    spec: {}
+  3: |
+    apiVersion: security.istio.io/v1
+    kind: AuthorizationPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: allowSameNamespace
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: allow-same-namespace
+      namespace: example
+    spec:
+      action: ALLOW
+      rules:
+        - from:
+            - source:
+                namespaces:
+                  - example
+  4: |
+    apiVersion: security.istio.io/v1
+    kind: PeerAuthentication
+    metadata:
+      annotations:
+        posture.dev/rule: mtls.mode
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: mtls-strict
+      namespace: example
+    spec:
+      mtls:
+        mode: STRICT
+  5: |
+    apiVersion: networking.istio.io/v1
+    kind: ServiceEntry
+    metadata:
+      annotations:
+        posture.dev/rule: egress.allowedHosts.github
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+        istio.io/use-waypoint: default
+        istio.io/use-waypoint-namespace: egress-gateway
+      name: allow-egress-from-all-to-github
+      namespace: example
+    spec:
+      exportTo:
+        - .
+      hosts:
+        - api.github.com
+      location: MESH_EXTERNAL
+      ports:
+        - name: tls-443
+          number: 443
+          protocol: TLS
+      resolution: DNS
+  6: |
+    apiVersion: networking.istio.io/v1
+    kind: ServiceEntry
+    metadata:
+      annotations:
+        posture.dev/rule: egress.allowedHosts.github-content
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+        istio.io/use-waypoint: default
+        istio.io/use-waypoint-namespace: egress-gateway
+      name: allow-egress-from-all-to-github-content
+      namespace: example
+    spec:
+      exportTo:
+        - .
+      hosts:
+        - '*.githubusercontent.com'
+      location: MESH_EXTERNAL
+      ports:
+        - name: tls-443
+          number: 443
+          protocol: TLS
+      resolution: DYNAMIC_DNS
+  7: |
+    apiVersion: networking.istio.io/v1
+    kind: ServiceEntry
+    metadata:
+      annotations:
+        posture.dev/rule: egress.allowedHosts.mirror
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+        istio.io/use-waypoint: legacy
+        istio.io/use-waypoint-namespace: egress-gateway
+      name: allow-egress-from-all-to-mirror
+      namespace: example
+    spec:
+      exportTo:
+        - .
+      hosts:
+        - mirror.example.com
+      location: MESH_EXTERNAL
+      ports:
+        - name: http-80
+          number: 80
+          protocol: HTTP
+      resolution: DNS
+  8: |
+    apiVersion: networking.istio.io/v1
+    kind: ServiceEntry
+    metadata:
+      annotations:
+        posture.dev/rule: egress.allowedHosts.partner-db
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+        istio.io/use-waypoint: default
+        istio.io/use-waypoint-namespace: egress-gateway
+      name: allow-egress-from-all-to-partner-db
+      namespace: example
+    spec:
+      addresses:
+        - 203.0.113.10
+        - 198.51.100.0/24
+      exportTo:
+        - .
+      hosts:
+        - partner-db.example.posture.internal
+      location: MESH_EXTERNAL
+      ports:
+        - name: tcp-5432
+          number: 5432
+          protocol: TCP
+      resolution: NONE
+  9: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: mesh
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: allow-ingress-from-ambient-probes-to-all
+      namespace: example
+    spec:
+      ingress:
+        - from:
+            - ipBlock:
+                cidr: 169.254.7.127/32
+      podSelector: {}
+      policyTypes:
+        - Ingress
+  10: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: networkPolicy.ingress
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: deny-all-ingress
+      namespace: example
+    spec:
+      podSelector: {}
+      policyTypes:
+        - Ingress
+  11: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: networkPolicy.egress
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: deny-all-egress
+      namespace: example
+    spec:
+      podSelector: {}
+      policyTypes:
+        - Egress
+  12: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: egress.allowedHosts
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: allow-egress-from-all-to-egress-gateway
+      namespace: example
+    spec:
+      egress:
+        - ports:
+            - port: 15008
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: egress-gateway
+      podSelector: {}
+      policyTypes:
+        - Egress
+  13: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: allowDNS
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: allow-egress-from-all-to-dns
+      namespace: example
+    spec:
+      egress:
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+            - port: 15008
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      podSelector: {}
+      policyTypes:
+        - Egress
+  14: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      annotations:
+        posture.dev/rule: allowSameNamespace
+      labels:
+        app.kubernetes.io/instance: posture
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: posture
+        helm.sh/chart: posture-0.1.0
+      name: allow-same-namespace
+      namespace: example
+    spec:
+      egress:
+        - to:
+            - podSelector: {}
+      ingress:
+        - from:
+            - podSelector: {}
+      podSelector: {}
+      policyTypes:
+        - Ingress
+        - Egress
 exceptions:
   1: |
     apiVersion: policy.posture.dev/v1alpha1

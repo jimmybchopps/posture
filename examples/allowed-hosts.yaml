@@ -1,0 +1,27 @@
+# Egress to hostnames under Istio ambient: hosts outside the cluster this namespace may reach
+# through the egress waypoint (the boundary chart's, in namespace egress-gateway). Each entry
+# renders a ServiceEntry; one NetworkPolicy lets every pod reach the waypoint on 15008. The
+# waypoint's own host list has the final say.
+mesh: istio
+
+egress:
+  allowedHosts:
+    github:                     # TLS, matched by SNI; resolved by DNS
+      hosts: [api.github.com]
+      ports: [443]
+    github-content:             # wildcards get their own entry (resolved per connection)
+      hosts: ["*.githubusercontent.com"]
+      ports: [443]
+    mirror:                     # plain HTTP, matched by Host, through another waypoint
+      hosts: [mirror.example.com]
+      ports: [80]
+      protocol: HTTP
+      gateway: legacy
+    partner-db:                 # by address: TCP is only allowed with addresses
+      addresses: [203.0.113.10, 198.51.100.0/24]
+      ports: [5432]
+      protocol: TCP
+    retired-api:                # switched off: validated, not rendered
+      hosts: [old.example.com]
+      ports: [443]
+      enabled: false

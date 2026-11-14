@@ -219,6 +219,14 @@ ingress: {}
 #    destinations:  references to predefined or custom destinations, keyed by name, each {}
 #                   or { enabled: false }; ports come from their definitions. A map, not a
 #                   list, so layered values files merge instead of replacing each other.
+#    allowedHosts:  reserved key (mesh: istio): hosts outside the cluster this namespace may
+#                   reach through the egress waypoint, keyed by entry name. Each entry has
+#                   hosts (DNS names, a leading "*." allowed) or addresses (IPs or CIDRs),
+#                   ports (numbers), protocol (TLS, the default, matched by SNI; HTTP, by Host;
+#                   TCP, addresses only), gateway (the waypoint's name, default "default"),
+#                   and enabled. Renders a ServiceEntry allow-egress-from-all-to-<entry>, and
+#                   allow-egress-from-all-to-egress-gateway (every pod to the waypoint, 15008).
+#                   The waypoint's own list (the boundary chart's) has the final say.
 egress: {}
 #  grafana:
 #    to:
@@ -228,3 +236,7 @@ egress: {}
 #    destinations:
 #      postgres: {}
 #      sso: { enabled: false }
+#  allowedHosts:
+#    github:
+#      hosts: [api.github.com]
+#      ports: [443]

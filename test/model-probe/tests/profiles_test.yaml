@@ -139,3 +139,20 @@ tests:
     asserts:
       - equal: { path: ports, value: [{ port: 15012, protocol: TCP }, { port: 15010, protocol: TCP }] }
       - equal: { path: peer.namespace.scope, value: all }
+
+  # posture.allowedHosts carries the profile that set an entry (posture.dev/profile)
+  - it: an allowedHosts entry from a profile carries its name
+    template: templates/merge.yaml
+    set:
+      allowedHostsTest:
+        values:
+          egress:
+            allowedHosts:
+              github: { hosts: [api.github.com], ports: [443] }
+              mirror: { hosts: [mirror.example.com], ports: [80], protocol: HTTP }
+        origins: { egress.allowedHosts.github: some-profile }
+    asserts:
+      - equal: { path: 'allowedHosts[0].key', value: github }
+      - equal: { path: 'allowedHosts[0].profile', value: some-profile }
+      - equal: { path: 'allowedHosts[1].key', value: mirror }
+      - equal: { path: 'allowedHosts[1].profile', value: "" }

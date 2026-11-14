@@ -73,6 +73,14 @@ mTLS (Istio ambient): inherit: nothing is rendered, the mesh-wide setting applie
   clients are still refused by authorization unless they match a cidrs rule.
 {{- end }}
 {{- end }}
+{{- with $model.allowedHosts }}
+
+Egress to hostnames (egress.allowedHosts), through the egress waypoint; the waypoint's own list
+  (the boundary chart's) must allow them too:
+{{- range . }}
+  - {{ .key }}: {{ join ", " (.hosts | default .addresses) }} on {{ range $i, $p := .ports }}{{ if $i }}, {{ end }}{{ int $p }}{{ end }} ({{ .protocol }}) via {{ .waypointNamespace }}/{{ .gateway }}
+{{- end }}
+{{- end }}
 {{- $untrusted := list -}}
 {{- range $model.rules -}}
   {{- if and .peer.inCluster (eq .peer.namespace.scope "all") .peer.labels (not .peer.serviceAccount) -}}
@@ -123,5 +131,5 @@ Disabled (enabled: false; validated, not rendered):
 
 See which objects it created, and the rule each one came from:
 
-  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }}{{ if and (eq $model.mesh "istio") $model.meshMember (ne $model.mtls.mode "inherit") }},peerauthentications.security.istio.io{{ end }}{{ if $model.exceptions.enabled }},policyexceptions.policy.posture.dev{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
+  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }}{{ if and (eq $model.mesh "istio") $model.meshMember (ne $model.mtls.mode "inherit") }},peerauthentications.security.istio.io{{ end }}{{ if $model.allowedHosts }},serviceentries.networking.istio.io{{ end }}{{ if $model.exceptions.enabled }},policyexceptions.policy.posture.dev{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
     -o custom-columns='NAME:.metadata.name,RULE:.metadata.annotations.posture\.dev/rule,PROFILE:.metadata.annotations.posture\.dev/profile'

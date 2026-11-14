@@ -217,10 +217,22 @@
       }
     },
     "egress": {
-      "description": "Egress rules, keyed by source workload.",
+      "description": "Egress rules, keyed by source workload; allowedHosts is reserved (egress to hostnames).",
       "type": "object",
       "propertyNames": {
-        "$ref": "#/definitions/name"
+        "anyOf": [
+          {
+            "$ref": "#/definitions/name"
+          },
+          {
+            "const": "allowedHosts"
+          }
+        ]
+      },
+      "properties": {
+        "allowedHosts": {
+          "$ref": "#/definitions/allowedHosts"
+        }
       },
       "additionalProperties": {
         "$ref": "#/definitions/egressRule"
@@ -624,6 +636,77 @@
                 "$ref": "#/definitions/enabled"
               }
             }
+          }
+        }
+      }
+    },
+    "address": {
+      "description": "An IP address or CIDR.",
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(/(3[0-2]|[12]?[0-9]))?$"
+        },
+        {
+          "pattern": "^[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,7}(/(12[0-8]|1[01][0-9]|[1-9]?[0-9]))?$"
+        }
+      ]
+    },
+    "host": {
+      "description": "A DNS name; a wildcard only as the leading label (*.example.com).",
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^(\\*\\.)?([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\\.)+[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+    },
+    "allowedHosts": {
+      "description": "Hosts outside the cluster this namespace may reach through the egress waypoint (mesh: istio), keyed by entry name. Completeness (hosts or addresses, ports) is checked after profiles are layered in.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/definitions/nameNotAny"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "$ref": "#/definitions/enabled"
+          },
+          "hosts": {
+            "description": "DNS names (matched by SNI for TLS, by Host for HTTP).",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/host"
+            }
+          },
+          "addresses": {
+            "description": "IP addresses or CIDRs.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/address"
+            }
+          },
+          "ports": {
+            "description": "Plain port numbers: the protocol is the entry's, and ServiceEntry ports have no ranges.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/portNumber"
+            }
+          },
+          "protocol": {
+            "description": "Default TLS. TCP needs addresses.",
+            "type": "string",
+            "enum": [
+              "TLS",
+              "HTTP",
+              "TCP"
+            ]
+          },
+          "gateway": {
+            "description": "The egress waypoint's name; default default.",
+            "$ref": "#/definitions/name"
           }
         }
       }

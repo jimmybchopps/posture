@@ -345,18 +345,31 @@ chart's: its egress waypoint refuses any destination not on its own list, so a n
 only ask for hosts, never grant itself one. posture never references `boundary`; the two share
 only the shape below and the gateway conventions.
 
-- Entries are keyed by name: `enabled` (default true), exactly one of `hosts` (DNS names,
-  wildcards allowed) or `addresses` (IPs or CIDRs), `ports` (required, numeric), `protocol`
-  (`TLS` matched by SNI, `HTTP` matched by Host, `TCP` addresses only; `TCP` with `hosts`
-  fails), and optional `gateway` (the egress gateway's name, default `default`).
+- Entries are keyed by name: `enabled` (default true), exactly one of `hosts` (DNS names, a
+  wildcard only as the leading `*.`) or `addresses` (IPs or CIDRs), `ports` (required, plain
+  numbers: the protocol is the entry's), `protocol` (default `TLS`, matched by SNI; `HTTP`
+  matched by Host; `TCP` addresses only, and `TCP` with `hosts` fails), and optional `gateway`
+  (the egress waypoint's name, default `default`). The schema checks shapes; the model checks
+  completeness after profiles are layered in, as everywhere.
+- Resolution: `DNS` for exact hosts, `DYNAMIC_DNS` for wildcards (resolved per connection from
+  SNI or Host), `NONE` for addresses. Wildcard and exact hosts in one entry fail, since they
+  need different resolutions: split them into two entries.
 - Per entry, a `ServiceEntry` named `allow-egress-from-all-to-<entry>`: the hosts or addresses
   and ports, `location: MESH_EXTERNAL`, `exportTo: ["."]` (this namespace only), and the labels
   `istio.io/use-waypoint: <gateway>` and `istio.io/use-waypoint-namespace: <the egress-gateway
-  destination's namespace>`. Overriding that destination's namespace moves both.
+  destination's namespace>`. Overriding that destination's namespace moves both; it must stay
+  a workload in one namespace (`cidrs` or `namespace: any` fail). An `addresses` entry gets the
+  synthetic host `<entry>.<namespace>.posture.internal` (ServiceEntry always needs `hosts`;
+  it's never resolved).
 - One NetworkPolicy, `allow-egress-from-all-to-egress-gateway`, letting every pod reach the
   waypoint on 15008, rendered once when any entry is enabled. The ServiceEntry applies to the
   whole namespace, so this is namespace-wide by design.
-- `mesh` other than `istio` fails until the Linkerd and Cilium phases render their own objects.
+- `mesh` other than `istio` fails until the Linkerd and Cilium phases render their own objects,
+  and so does `meshMember: false` (pods outside the data plane never reach the waypoint). A
+  disabled entry skips both checks.
+- Collisions follow the usual rule: an entry named like an `egress.any` reference
+  (`allow-egress-from-all-to-<entry>`), an entry named `egress-gateway`, or an explicit
+  `egress.any.destinations.egress-gateway` beside enabled entries fails, naming both.
 - Not the same as `destinations` with `cidrs`: those go directly to site services and never pass
   the gateway; `allowedHosts` always leaves through the gateway and is checked against
   `boundary`'s list.
@@ -535,7 +548,8 @@ charts/posture/
                           rule, allowDNS included), _networkpolicy.tpl (peer and port helpers)
     validate.yaml         builds the model on every render so bad values always fail
     istio/                authorizationpolicy (phase 2), peerauthentication (phase 3),
-                          _authorization.tpl (object, peer and port helpers)
+                          serviceentry (egress.allowedHosts), _authorization.tpl (object,
+                          peer and port helpers)
     linkerd/  cilium/     phase 6 (Linkerd), phase 7 (Cilium)
     exceptions/           the PolicyExceptions object (posture-exceptions)
     NOTES.txt
@@ -545,13 +559,16 @@ test/e2e/                 k3d scripts: allowed traffic connects, denied traffic 
 test/model-probe/         test-only chart that prints the model for helm-unittest
 test/crd-schema/          test-only chart that turns the pinned policy release's PolicyExceptions
                           CRD into the JSON schema kubeconform uses (make crd-schema)
+test/release/             release scripts (tag check, notes, assets) and their cases
+.github/workflows/        ci.yml (every push and PR), release.yml (on a v<version> tag)
+CHANGELOG.md              one section per release
 docs/PLAN.md              build order and open questions
 ```
 
 ## Testing
 
-`make tools` installs the pinned versions into `.bin/`; `make test` runs lint, unit tests, and
-kubeconform; `make test-all-helm` repeats that under every supported Helm version. The
+`make tools` installs the pinned versions into `.bin/`; `make test` runs lint, unit tests,
+kubeconform, and the release scripts' own cases (`make check-release`); `make test-all-helm` repeats that under every supported Helm version. The
 underlying commands:
 
     helm lint --strict charts/posture
@@ -573,6 +590,15 @@ form with real Helm.
 
 Snapshots of every example's output are committed under `charts/posture/tests/__snapshot__/`;
 review the diff before updating them.
+
+Releasing: set the version in `charts/posture/Chart.yaml`, write its `## X.Y.Z` section in
+`CHANGELOG.md` (marked `(unreleased)` while it's being written), and rehearse with
+`make release-check TAG=v<version>`, which refuses the marker. In the release commit, remove
+the marker; once it's merged to `main` and CI (e2e included) passes, push the tag
+`v<version>`. `.github/workflows/release.yml` checks the tag against Chart.yaml and the
+changelog, runs `make test`, builds `posture-<version>.tgz` and `SHA256SUMS`
+(`test/release/build-dist.sh`), and creates the GitHub release with the changelog section as
+its notes.
 
 Every feature gets unit tests for each `mesh` value it affects, including the `fail` cases. A
 rule change isn't done until an e2e case shows the allowed path connects and a denied path
@@ -608,6 +634,6 @@ qualified, because `restrict-image-registries` matches plain prefixes
 | 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
 | 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
-| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a, 5b, 5c done (5c e2e not yet run) |
+| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a–5d done (5d's e2e comes with 5e); release 0.1.0 after 5d |
 | 6 | Linkerd renderer | not started |
 | 7 | Cilium renderer | not started |
