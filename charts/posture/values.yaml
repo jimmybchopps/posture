@@ -113,9 +113,9 @@ exceptions: {}
 
 # -- Sources: where ingress traffic can come from, referenced by name under
 #    ingress.<target>.sources. Predefined: monitoring (namespace prometheus, workload
-#    prometheus, serviceAccount prometheus) and ingress-gateway (namespace gateway, every
-#    pod). Entries here override
-#    a predefined source field by field, or define a new one.
+#    prometheus, serviceAccount prometheus) and ingress-gateway (namespace ingress-gateway,
+#    every pod). Entries here override a predefined source field by field, or define a new
+#    one.
 #    An entry is either inside the cluster (namespace, plus workload with optional selector,
 #    or a raw podSelector; optional serviceAccount) or outside it (cidrs), never both.
 #    workload: any means every pod in the namespace; an omitted namespace means this one.
@@ -145,7 +145,7 @@ sources: {}
 #      smtp            private ranges                   25, 587
 #      ntp             private ranges                   123/UDP
 #      syslog          private ranges                   514/UDP, 514/TCP, 6514
-#      egress-gateway  namespace gateway, every pod     15008 (mesh: istio only)
+#      egress-gateway  namespace egress-gateway, every pod  15008 (mesh: istio only)
 #    Entries here override a predefined destination field by field, or define a new one.
 destinations: {}
 #  postgres:

@@ -201,12 +201,12 @@ tests:
     asserts:
       - equal: { path: 'spec.rules[0].from', value: [{ source: { principals: [cluster.local/ns/observability/sa/prometheus] } }] }
 
-  - it: ingress-gateway -> namespace gateway
+  - it: ingress-gateway -> namespace ingress-gateway
     set:
       ingress.grafana.sources.ingress-gateway: [3000]
     documentSelector: { path: metadata.name, value: allow-ingress-from-ingress-gateway-to-grafana }
     asserts:
-      - equal: { path: 'spec.rules[0].from', value: [{ source: { namespaces: [gateway] } }] }
+      - equal: { path: 'spec.rules[0].from', value: [{ source: { namespaces: [ingress-gateway] } }] }
 
   - it: a custom source with a serviceAccount -> its principal
     set:

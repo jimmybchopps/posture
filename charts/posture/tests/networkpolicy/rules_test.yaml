@@ -257,3 +257,31 @@ tests:
       egress.grafana.destinations.egress-gateway: { enabled: false }
     asserts:
       - hasDocuments: { count: 0 }
+
+  # Gateway presets (phase 5b): each gateway in its own namespace
+  - it: ingress-gateway is every pod in namespace ingress-gateway
+    set:
+      ingress.grafana.sources.ingress-gateway: [3000]
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-gateway } } }]
+
+  - it: egress-gateway is every pod in namespace egress-gateway, on 15008 once
+    set:
+      mesh: istio
+      egress.grafana.destinations: { egress-gateway: {} }
+    asserts:
+      - equal:
+          path: spec.egress[0].to
+          value: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: egress-gateway } } }]
+      - equal: { path: 'spec.egress[0].ports', value: [{ port: 15008, protocol: TCP }] }
+
+  - it: the old shared namespace is one override away
+    set:
+      sources.ingress-gateway: { namespace: gateway }
+      ingress.grafana.sources.ingress-gateway: [3000]
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: gateway } } }]

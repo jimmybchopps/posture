@@ -477,8 +477,9 @@ Decisions made in 5a:
 
 ### 5b. Gateway presets
 
-- [ ] `ingress-gateway` source in namespace `ingress-gateway`; `egress-gateway` destination in
-      namespace `egress-gateway` (were both `gateway`).
+- [x] `ingress-gateway` source in namespace `ingress-gateway`; `egress-gateway` destination in
+      namespace `egress-gateway` (were both `gateway`). No shim (nothing is released): the old
+      default is one override away, `sources.ingress-gateway: { namespace: gateway }`.
 
 ### 5c. Profiles
 

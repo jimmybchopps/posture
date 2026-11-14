@@ -21,7 +21,7 @@ monitoring:
   workload: prometheus
   serviceAccount: prometheus
 ingress-gateway:
-  namespace: gateway
+  namespace: ingress-gateway
   workload: any
 {{- end -}}
 
@@ -62,7 +62,7 @@ syslog:
   cidrs: {{ $private }}
   ports: [{ port: 514, protocol: UDP }, { port: 514, protocol: TCP }, 6514]
 egress-gateway:
-  namespace: gateway
+  namespace: egress-gateway
   workload: any
   ports: [15008]
   requiresMesh:

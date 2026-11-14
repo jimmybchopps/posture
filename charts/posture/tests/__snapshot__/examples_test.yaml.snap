@@ -192,7 +192,7 @@ grafana:
         - from:
             - namespaceSelector:
                 matchLabels:
-                  kubernetes.io/metadata.name: gateway
+                  kubernetes.io/metadata.name: ingress-gateway
           ports:
             - port: 3000
               protocol: TCP
@@ -634,7 +634,7 @@ istio:
         - from:
             - source:
                 namespaces:
-                  - gateway
+                  - ingress-gateway
           to:
             - operation:
                 ports:
@@ -758,7 +758,7 @@ istio:
         - from:
             - namespaceSelector:
                 matchLabels:
-                  kubernetes.io/metadata.name: gateway
+                  kubernetes.io/metadata.name: ingress-gateway
           ports:
             - port: 3000
               protocol: TCP

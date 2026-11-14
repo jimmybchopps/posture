@@ -577,6 +577,6 @@ qualified, because `restrict-image-registries` matches plain prefixes
 | 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
 | 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
-| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a done |
+| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a, 5b done |
 | 6 | Linkerd renderer | not started |
 | 7 | Cilium renderer | not started |

@@ -21,13 +21,13 @@ tests:
       - equal: { path: peer.serviceAccount, value: prometheus-k8s }
       - equal: { path: peer.labels, value: { app.kubernetes.io/name: prometheus } }
 
-  - it: ingress-gateway defaults to every pod in namespace gateway
+  - it: ingress-gateway defaults to every pod in namespace ingress-gateway
     set:
       posture.ingress.grafana.sources.ingress-gateway: [3000]
     documentSelector: { path: name, value: allow-ingress-from-ingress-gateway-to-grafana }
     asserts:
       - equal: { path: peer.labels, value: {} }
-      - equal: { path: peer.namespace, value: { scope: named, name: gateway } }
+      - equal: { path: peer.namespace, value: { scope: named, name: ingress-gateway } }
 
   - it: private-range destinations use the three private ranges
     set:
@@ -62,14 +62,14 @@ tests:
           value: [{ port: 443, protocol: TCP }, { port: 6443, protocol: TCP }]
         documentSelector: { path: name, value: allow-egress-from-all-to-kube-api }
 
-  - it: egress-gateway is every pod in namespace gateway on 15008 with mesh istio
+  - it: egress-gateway is every pod in namespace egress-gateway on 15008 with mesh istio
     set:
       posture.mesh: istio
       posture.egress.grafana.destinations: { egress-gateway: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-egress-gateway }
     asserts:
       - equal: { path: peer.labels, value: {} }
-      - equal: { path: peer.namespace, value: { scope: named, name: gateway } }
+      - equal: { path: peer.namespace, value: { scope: named, name: egress-gateway } }
       - equal: { path: ports, value: [{ port: 15008, protocol: TCP }] }
       - notExists: { path: peer.requiresMesh }
 
