@@ -13,7 +13,7 @@ tests:
         grafana: { sources: { backup-agent: [3000] } }
         any: { from: { any: { namespace: tooling, ports: [8080] } } }
       egress:
-        prometheus2: { destinations: [license-server] }
+        prometheus2: { destinations: { license-server: {} } }
     asserts:
       - notFailedTemplate: {}
 
@@ -88,7 +88,7 @@ tests:
   - it: rejects a key with a dot in egress
     set:
       egress:
-        grafana.v2: { destinations: [dns] }
+        grafana.v2: { destinations: { dns: {} } }
     asserts:
       - failedTemplate:
           errorPattern: "grafana.v2"
@@ -187,7 +187,7 @@ tests:
 
   - it: rejects any as a destinations reference
     set:
-      egress.grafana.destinations: [any]
+      egress.grafana.destinations: { any: {} }
     asserts:
       - failedTemplate: {}
 
@@ -405,3 +405,188 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "namespace"
+
+  # enabled (phase 5a)
+  - it: accepts enabled on rules, peers, references, and exclusions
+    set:
+      mesh: istio
+      ingress.grafana:
+        enabled: false
+        from: { renderer: { ports: [3000], enabled: false }, any: { namespace: tooling, ports: [3000], enabled: true } }
+        sources: { monitoring: [3000], ingress-gateway: { ports: [3000], enabled: false } }
+      ingress.api.from.vpn: { cidrs: [10.50.0.0/16], ports: [8080], enabled: false }
+      egress.grafana:
+        enabled: true
+        to: { keycloak: { namespace: keycloak, ports: [8080], enabled: false } }
+        destinations: { postgres: {}, sso: { enabled: false } }
+      mtls.exclusions.api: { ports: [8081], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects a non-boolean enabled on a rule
+    set:
+      ingress.grafana: { enabled: "no", from: { renderer: { ports: [3000] } } }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a non-boolean enabled on a peer
+    set:
+      egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080], enabled: "false" }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a non-boolean enabled on an exclusion
+    set:
+      mesh: istio
+      mtls.exclusions.api: { ports: [8081], enabled: "no" }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a sources reference object without ports
+    set:
+      ingress.grafana.sources.monitoring: { enabled: false }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown key on a sources reference object
+    set:
+      ingress.grafana.sources.monitoring: { ports: [3000], namespace: x }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects destinations as a list (it's a map, so layered values merge)
+    set:
+      egress.grafana.destinations: [postgres]
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown key on a destinations reference
+    set:
+      egress.grafana.destinations.postgres: { ports: [5433] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a non-boolean enabled on a destinations reference
+    set:
+      egress.grafana.destinations.postgres: { enabled: "no" }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects enabled on a source or destination definition (only references take it)
+    set:
+      destinations.vault: { namespace: vault, workload: vault, ports: [8200], enabled: false }
+    asserts:
+      - failedTemplate: {}
+
+  # Profiles (phase 5c)
+  - it: accepts every profile and setting
+    release:
+      namespace: x
+    set:
+      profiles:
+        istio-system: { settings: { apiServerCidrs: [10.0.0.0/24] } }
+        istio-ingress: { enabled: true, settings: { ports: [8443], clientCidrs: [203.0.113.0/24] } }
+        istio-egress: { enabled: false, settings: { ports: [443] } }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects an unknown profile
+    set:
+      profiles.istio-sytem: {}
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown profile setting
+    set:
+      profiles.istio-ingress.settings.port: [443]
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a malformed profile setting
+    set:
+      profiles.istio-system.settings.apiServerCidrs: [not-a-cidr]
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a non-boolean meshMember
+    set:
+      meshMember: "no"
+    asserts:
+      - failedTemplate: {}
+
+  - it: accepts partial entries, so a profile's can be overridden or switched off
+    release:
+      namespace: x
+    set:
+      profiles.istio-ingress: {}
+      ingress.any.from.clients: { enabled: false }
+      egress.any: { enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  # Egress to hostnames (egress.allowedHosts)
+  - it: accepts allowedHosts entries
+    set:
+      mesh: istio
+      egress.allowedHosts:
+        github: { hosts: [api.github.com], ports: [443], protocol: TLS, gateway: legacy, enabled: true }
+        content: { hosts: ["*.githubusercontent.com"], ports: [443] }
+        db: { addresses: [203.0.113.10, 198.51.100.0/24, "2001:db8::/32"], ports: [5432], protocol: TCP }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects port objects in allowedHosts
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [{ port: 443 }] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/github/ports/0"
+
+  - it: rejects named ports in allowedHosts
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [https] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/github/ports/0"
+
+  - it: rejects a URL as a host
+    set:
+      egress.allowedHosts.github: { hosts: ["https://api.github.com"], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/github/hosts/0"
+
+  - it: rejects a wildcard that isn't the leading label
+    set:
+      egress.allowedHosts.github: { hosts: ["a.*.com"], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/github/hosts/0"
+
+  - it: rejects a bad address
+    set:
+      egress.allowedHosts.db: { addresses: [203.0.113.300], ports: [5432], protocol: TCP }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/db/addresses/0"
+
+  - it: rejects an unknown protocol
+    set:
+      egress.allowedHosts.db: { addresses: [203.0.113.10], ports: [5432], protocol: UDP }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts/db/protocol"
+
+  - it: rejects an unknown field in an allowedHosts entry
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], host: api.github.com }
+    asserts:
+      - failedTemplate:
+          errorPattern: "host"
+
+  - it: allowedHosts is reserved under egress only
+    set:
+      ingress.allowedHosts.from.any: { ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowedHosts"

@@ -12,7 +12,5 @@ keywords:
   - networkpolicy
   - security
   - istio
-  - linkerd
-  - cilium
 annotations:
   licenses: Apache-2.0

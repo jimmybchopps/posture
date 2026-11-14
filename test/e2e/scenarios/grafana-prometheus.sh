@@ -1,18 +1,19 @@
 # shellcheck shell=bash
 # examples/grafana.yaml in "grafana" (examples/istio.yaml under MESH=istio) and
-# examples/prometheus.yaml in "prometheus": gateway and Prometheus into Grafana, Grafana out to
+# examples/prometheus.yaml in "prometheus": the ingress gateway (namespace ingress-gateway, the
+# ingress-gateway preset's default) and Prometheus into Grafana, Grafana out to
 # postgres and sso on the external host, Prometheus scraping other namespaces.
 
 setup() {
   namespace grafana
   namespace prometheus
-  namespace gateway
+  namespace ingress-gateway
   namespace intruder
   workload grafana grafana 3000 3001
   workload grafana renderer 8081
   workload prometheus prometheus 9090
   workload prometheus other 9090
-  workload gateway envoy 8443
+  workload ingress-gateway envoy 8443
   workload intruder x 9100 8081
 }
 
@@ -27,8 +28,8 @@ install() {
 
 checks() {
   # Into grafana
-  expect allow gateway/envoy grafana.grafana:3000            # ingress-gateway source
-  expect deny gateway/envoy grafana.grafana:3001             # port not in the rule
+  expect allow ingress-gateway/envoy grafana.grafana:3000    # ingress-gateway source
+  expect deny ingress-gateway/envoy grafana.grafana:3001     # port not in the rule
   expect allow prometheus/prometheus grafana.grafana:3000    # scrape: both releases allow it
   expect deny prometheus/other grafana.grafana:3000          # wrong workload in prometheus
   expect deny intruder/x grafana.grafana:3000                # not in any rule

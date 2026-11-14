@@ -5,12 +5,51 @@
 #
 # Map keys (sources, destinations, ingress, egress, and the entries under them) become parts
 # of object names: lowercase letters, digits, and "-" only.
+#
+# Switch off, don't delete: every rule (ingress.<target>, egress.<source>), every from/to
+# entry, every sources and destinations reference, and every mtls.exclusions object takes
+# enabled: false (default true). A disabled entry renders nothing, but is still validated
+# and listed in NOTES.txt; disabling a rule disables everything under it. Everything a user
+# might override is a map, so it merges across values files.
+#
+# Keys a profile may set (allowSameNamespace, allowDNS, meshMember, mtls.mode) have no live
+# default here, only a commented one: their defaults are applied in the chart, beneath any
+# profile, so the chart can tell a value you set from a default. Set them as usual.
+
+# -- Built-in profiles: chart-defined layers of values that make a known component's namespace
+#    work out of the box (exceptions, rules, sources, destinations, meshMember). Listing a
+#    profile turns it on; enabled: false keeps it listed but off. Your own values always win
+#    over a profile's, and anything a profile adds can be switched off with enabled: false.
+#    Objects from a profile carry the posture.dev/profile annotation.
+#      istio-system   Istio's control plane (istiod, ztunnel). Settings: apiServerCidrs
+#                     (required: where the API server calls istiod's webhooks from).
+#      istio-ingress  the ingress gateway's namespace (ingress-gateway). Settings: ports
+#                     (listener ports, default 443 and 80), clientCidrs (default the private
+#                     ranges). It reaches meshed backends on 15008 only; a backend outside the
+#                     mesh needs its own egress rule.
+#      istio-egress   the egress waypoint's namespace (egress-gateway). Settings: ports (default
+#                     443 and 80); it may reach any address on them, limited by boundary's host
+#                     list at the waypoint.
+#    All three set meshMember: false. Two profiles that set the same value differently fail.
+profiles: {}
+#  istio-system:
+#    settings:
+#      apiServerCidrs: [10.0.0.0/24]
 
 # -- The service mesh in use. Changes what is rendered alongside the NetworkPolicies.
 #    none:  NetworkPolicies only.
 #    istio: Istio ambient mode (L4). NetworkPolicies also allow TCP 15008 (HBONE) for every
 #           in-cluster peer, plus kubelet probes from 169.254.7.127/32.
 mesh: none
+
+# -- Whether this namespace's pods are in the mesh data plane (default true). false for the
+#    mesh's own components (control plane, gateways, waypoints): no AuthorizationPolicies,
+#    PeerAuthentications, or ambient-probe NetworkPolicy, only NetworkPolicies (still allowing
+#    15008 to in-cluster peers) and exceptions. Set by the istio-* profiles.
+#    In istio-system, Istio's root namespace, namespace-wide authorization and mTLS objects
+#    would apply to the whole mesh, so mesh: istio there fails unless meshMember is false (or
+#    authorization is off and mtls.mode is inherit). A custom root namespace isn't detected.
+# meshMember: true
 
 # -- The mesh trust domain, used to build workload identities.
 trustDomain: cluster.local
@@ -52,9 +91,9 @@ authorization:
 #                 inherit     render nothing; the mesh-wide setting applies
 #                 There is no DISABLE: an excluded port still uses mTLS when the client offers it.
 #    exclusions:  workload in this namespace -> ports that also accept plaintext, only with
-#                 mode STRICT. A list of port numbers, or { selector, ports } to match another
-#                 label (selector as for ingress rules). "any" isn't accepted: Istio sets
-#                 per-port mTLS only on a selected workload.
+#                 mode STRICT. A list of port numbers, or { selector, ports, enabled } to match
+#                 another label (selector as for ingress rules) or switch it off. "any" isn't
+#                 accepted: Istio sets per-port mTLS only on a selected workload.
 #    istio: PeerAuthentication mtls-<mode>, plus allow-plaintext-to-<workload> per exclusion.
 #           Wherever plaintext is accepted, authorization also admits clients without a mesh
 #           identity on those ports (allow-plaintext-to-<workload>; with PERMISSIVE,
@@ -63,18 +102,19 @@ authorization:
 #    Under STRICT, a cidrs source (outside the cluster, so never mTLS) must target excluded
 #    ports, or the render fails.
 mtls:
-  mode: STRICT
+  # mode: STRICT
   exclusions: {}
 #    grafana: [9090]
 #    renderer: { selector: instance, ports: [8081] }
+#    api: { ports: [8081], enabled: false }
 
 # -- Allow all traffic between pods in this namespace, on every port.
 #    Renders allow-same-namespace.
-allowSameNamespace: true
+# allowSameNamespace: true
 
 # -- Allow egress from every pod to the "dns" destination (kube-dns, 53/UDP and 53/TCP).
 #    Renders allow-egress-from-all-to-dns.
-allowDNS: true
+# allowDNS: true
 
 # -- Render posture-exceptions, the PolicyExceptions object (policy.posture.dev/v1alpha1) the
 #    cluster's admission policies read as parameters (paramRef), even when exceptions is
@@ -106,9 +146,9 @@ exceptions: {}
 
 # -- Sources: where ingress traffic can come from, referenced by name under
 #    ingress.<target>.sources. Predefined: monitoring (namespace prometheus, workload
-#    prometheus, serviceAccount prometheus) and ingress-gateway (namespace gateway, every
-#    pod). Entries here override
-#    a predefined source field by field, or define a new one.
+#    prometheus, serviceAccount prometheus) and ingress-gateway (namespace ingress-gateway,
+#    every pod). Entries here override a predefined source field by field, or define a new
+#    one.
 #    An entry is either inside the cluster (namespace, plus workload with optional selector,
 #    or a raw podSelector; optional serviceAccount) or outside it (cidrs), never both.
 #    workload: any means every pod in the namespace; an omitted namespace means this one.
@@ -138,7 +178,7 @@ sources: {}
 #      smtp            private ranges                   25, 587
 #      ntp             private ranges                   123/UDP
 #      syslog          private ranges                   514/UDP, 514/TCP, 6514
-#      egress-gateway  namespace gateway, every pod     15008 (mesh: istio only)
+#      egress-gateway  namespace egress-gateway, every pod  15008 (mesh: istio only)
 #    Entries here override a predefined destination field by field, or define a new one.
 destinations: {}
 #  postgres:
@@ -154,11 +194,12 @@ destinations: {}
 # -- Ingress rules, keyed by target workload in this namespace ("any" = every pod).
 #    selector:  which label the workload name matches: name (default, app.kubernetes.io/name),
 #               component, instance, or app.
+#    enabled:   default true; false switches off the whole rule (every from and sources entry).
 #    from:      peers keyed by workload ("any" = every pod), each with ports (required),
 #               and optional namespace (omitted = this namespace, "any" = every namespace),
-#               selector, and serviceAccount.
+#               selector, serviceAccount, and enabled.
 #    sources:   references to predefined or custom sources; the value is the list of ports
-#               on this target (required).
+#               on this target (required), or { ports, enabled } to switch one off.
 #    Ports are always numeric: 9090, or { port: 53, protocol: UDP }, or
 #    { port: 32000, endPort: 32768 }. protocol defaults to TCP.
 ingress: {}
@@ -170,16 +211,32 @@ ingress: {}
 #        ports: [3000]
 #    sources:
 #      monitoring: [3000]
-#      ingress-gateway: [3000]
+#      ingress-gateway: { ports: [3000], enabled: false }
 
 # -- Egress rules, keyed by source workload in this namespace ("any" = every pod).
+#    enabled:       default true; false switches off the whole rule.
 #    to:            peers keyed by workload, same fields as ingress "from".
-#    destinations:  a list of predefined or custom destinations; ports come from their
-#                   definitions.
+#    destinations:  references to predefined or custom destinations, keyed by name, each {}
+#                   or { enabled: false }; ports come from their definitions. A map, not a
+#                   list, so layered values files merge instead of replacing each other.
+#    allowedHosts:  reserved key (mesh: istio): hosts outside the cluster this namespace may
+#                   reach through the egress waypoint, keyed by entry name. Each entry has
+#                   hosts (DNS names, a leading "*." allowed) or addresses (IPs or CIDRs),
+#                   ports (numbers), protocol (TLS, the default, matched by SNI; HTTP, by Host;
+#                   TCP, addresses only), gateway (the waypoint's name, default "default"),
+#                   and enabled. Renders a ServiceEntry allow-egress-from-all-to-<entry>, and
+#                   allow-egress-from-all-to-egress-gateway (every pod to the waypoint, 15008).
+#                   The waypoint's own list (the boundary chart's) has the final say.
 egress: {}
 #  grafana:
 #    to:
 #      keycloak:
 #        namespace: keycloak
 #        ports: [8080]
-#    destinations: [postgres, sso]
+#    destinations:
+#      postgres: {}
+#      sso: { enabled: false }
+#  allowedHosts:
+#    github:
+#      hosts: [api.github.com]
+#      ports: [443]

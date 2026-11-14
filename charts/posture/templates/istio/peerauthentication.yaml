@@ -1,5 +1,6 @@
 {{- /*
-Istio ambient PeerAuthentications, when mesh: istio and mtls.mode isn't inherit:
+Istio ambient PeerAuthentications, when mesh: istio, meshMember, and mtls.mode isn't inherit
+(the model leaves these out otherwise):
   mtls-<mode>                 the namespace's mode (STRICT or PERMISSIVE)
   allow-plaintext-to-<key>    per exclusion (STRICT only): the workload stays STRICT except the
                               listed ports, which are PERMISSIVE. Never DISABLE: an excluded
@@ -11,7 +12,7 @@ is accepted) are in authorizationpolicy.yaml.
 {{- if eq $model.mesh "istio" -}}
 {{- with $model.fixed.mtlsNamespace }}
 ---
-{{ include "posture.istio.object" (dict "root" $ "kind" "PeerAuthentication" "name" .name "rule" .rule "spec" (dict "mtls" (dict "mode" $model.mtls.mode))) }}
+{{ include "posture.istio.object" (dict "root" $ "kind" "PeerAuthentication" "name" .name "rule" .rule "profile" .profile "spec" (dict "mtls" (dict "mode" $model.mtls.mode))) }}
 {{- end -}}
 {{- range $model.mtls.exclusions -}}
   {{- $portLevel := dict -}}
@@ -19,7 +20,7 @@ is accepted) are in authorizationpolicy.yaml.
     {{- $_ := set $portLevel (toString (int .)) (dict "mode" "PERMISSIVE") -}}
   {{- end }}
 ---
-{{ include "posture.istio.object" (dict "root" $ "kind" "PeerAuthentication" "name" .name "rule" .rule "spec" (dict
+{{ include "posture.istio.object" (dict "root" $ "kind" "PeerAuthentication" "name" .name "rule" .rule "profile" .profile "spec" (dict
   "selector" (dict "matchLabels" .labels)
   "mtls" (dict "mode" "STRICT")
   "portLevelMtls" $portLevel)) }}

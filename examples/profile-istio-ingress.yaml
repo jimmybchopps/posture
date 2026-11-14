@@ -1,0 +1,10 @@
+# Values for the "ingress-gateway" namespace (the boundary chart's ingress gateway) under Istio
+# ambient: clients connect on 443 from one network; the gateway reaches meshed backends as
+# HBONE on 15008, and istiod for xDS. meshMember: false (the gateway is Istio's own proxy).
+mesh: istio
+
+profiles:
+  istio-ingress:
+    settings:
+      ports: [443]
+      clientCidrs: [203.0.113.0/24]

@@ -19,6 +19,6 @@ This includes allowDNS, which is an ordinary rule in the model.
     "policyTypes" (list (title $rule.direction))
     $rule.direction (list (dict (ternary "from" "to" $isIngress) $peersOut.peers "ports" $portsOut.ports)) }}
 ---
-{{ include "posture.np.object" (dict "root" $ "name" $rule.name "rule" $rule.rule "spec" $spec) }}
+{{ include "posture.np.object" (dict "root" $ "name" $rule.name "rule" $rule.rule "profile" $rule.profile "spec" $spec) }}
 {{- end -}}
 {{- end -}}

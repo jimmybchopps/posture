@@ -6,7 +6,7 @@ accepts ingress from that address, on every port, whenever ingress is default-de
 {{- if $model.networkPolicy.ingress -}}
 {{- with $model.fixed.ambientProbes }}
 ---
-{{ include "posture.np.object" (dict "root" $ "name" .name "rule" .rule "spec" (dict
+{{ include "posture.np.object" (dict "root" $ "name" .name "rule" .rule "profile" .profile "spec" (dict
   "podSelector" (dict)
   "policyTypes" (list "Ingress")
   "ingress" (list (dict "from" (list (dict "ipBlock" (dict "cidr" "169.254.7.127/32"))))))) }}

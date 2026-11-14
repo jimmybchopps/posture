@@ -1,0 +1,261 @@
+suite: profiles
+templates:
+  - templates/networkpolicy/*.yaml
+  - templates/istio/*.yaml
+  - templates/exceptions/*.yaml
+release:
+  name: posture
+  namespace: istio-system
+set:
+  allowDNS: false
+  allowSameNamespace: false
+tests:
+  # istio-system
+  - it: istio-system renders istiod's and ztunnel's rules, annotated with the profile
+    set:
+      profiles.istio-system.settings.apiServerCidrs: [172.18.0.0/16]
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - hasDocuments: { count: 5 }
+      - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: istio-system }
+      - equal: { path: metadata.name, value: allow-ingress-from-all-namespaces-to-istiod }
+        documentIndex: 0
+      - equal:
+          path: spec.ingress[0]
+          value:
+            from: [{ namespaceSelector: {} }]
+            ports: [{ port: 15012, protocol: TCP }]
+        documentIndex: 0
+      - equal: { path: metadata.name, value: allow-ingress-from-apiserver-to-istiod }
+        documentIndex: 1
+      - equal:
+          path: spec.ingress[0]
+          value:
+            from: [{ ipBlock: { cidr: 172.18.0.0/16 } }]
+            ports: [{ port: 15017, protocol: TCP }]
+        documentIndex: 1
+      - equal: { path: metadata.name, value: allow-ingress-from-monitoring-to-istiod }
+        documentIndex: 2
+      - equal: { path: metadata.name, value: allow-ingress-from-monitoring-to-ztunnel }
+        documentIndex: 3
+      - equal: { path: 'spec.ingress[0].ports', value: [{ port: 15020, protocol: TCP }] }
+        documentIndex: 3
+      - equal: { path: metadata.name, value: allow-egress-from-istiod-to-kube-api }
+        documentIndex: 4
+
+  - it: istio-system carries istiod's and ztunnel's exceptions, annotated with the profile
+    set:
+      profiles.istio-system.settings.apiServerCidrs: [172.18.0.0/16]
+    template: templates/exceptions/policyexceptions.yaml
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: istio-system }
+      - lengthEqual: { path: spec.exceptions, count: 6 }
+      - equal:
+          path: spec.exceptions[4]
+          value:
+            policy: { kind: ValidatingAdmissionPolicy, name: restrict-seccomp }
+            workloads:
+              - { matchLabels: { app.kubernetes.io/name: istiod }, reason: "the istiod chart sets no seccompProfile" }
+              - { matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart sets no seccompProfile" }
+
+  - it: istio-system under mesh istio renders no AuthorizationPolicy, PeerAuthentication, or ambient probes
+    set:
+      mesh: istio
+      profiles.istio-system.settings.apiServerCidrs: [172.18.0.0/16]
+    template: templates/istio/authorizationpolicy.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: no PeerAuthentication with meshMember false
+    set:
+      mesh: istio
+      profiles.istio-system.settings.apiServerCidrs: [172.18.0.0/16]
+    template: templates/istio/peerauthentication.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: no ambient-probe NetworkPolicy with meshMember false
+    set:
+      mesh: istio
+      profiles.istio-system.settings.apiServerCidrs: [172.18.0.0/16]
+    template: templates/networkpolicy/ambient-probes.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: under mesh istio, in-cluster peers still get 15008 (gateways reach meshed pods over HBONE)
+    set:
+      mesh: istio
+      profiles.istio-system.settings.apiServerCidrs: [172.18.0.0/16]
+    template: templates/networkpolicy/rules.yaml
+    documentSelector: { path: metadata.name, value: allow-ingress-from-all-namespaces-to-istiod }
+    asserts:
+      - equal: { path: 'spec.ingress[0].ports', value: [{ port: 15012, protocol: TCP }, { port: 15008, protocol: TCP }] }
+
+  - it: a listed profile with enabled false contributes nothing
+    set:
+      profiles.istio-system: { enabled: false }
+      mesh: istio
+      authorization.enabled: false
+      mtls.mode: inherit
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  # The root-namespace guard
+  - it: no guard with authorization off and mtls inherit
+    set:
+      mesh: istio
+      authorization.enabled: false
+      mtls.mode: inherit
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: no guard with meshMember false set by hand
+    set:
+      mesh: istio
+      meshMember: false
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: no guard with mesh none
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: no guard in another namespace
+    release:
+      namespace: grafana
+    set:
+      mesh: istio
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  # Gateway profiles
+  - it: istio-ingress accepts clients on its listener ports and reaches meshed backends on 15008 only
+    release:
+      namespace: ingress-gateway
+    set:
+      profiles.istio-ingress: {}
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - hasDocuments: { count: 3 }
+      - equal: { path: metadata.name, value: allow-ingress-from-clients-to-all }
+        documentIndex: 0
+      - equal:
+          path: spec
+          value:
+            podSelector: {}
+            policyTypes: [Ingress]
+            ingress:
+              - from: [{ ipBlock: { cidr: 10.0.0.0/8 } }, { ipBlock: { cidr: 172.16.0.0/12 } }, { ipBlock: { cidr: 192.168.0.0/16 } }]
+                ports: [{ port: 443, protocol: TCP }, { port: 80, protocol: TCP }]
+        documentIndex: 0
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-all-namespaces }
+        documentIndex: 1
+      - equal: { path: 'spec.egress[0]', value: { to: [{ namespaceSelector: {} }], ports: [{ port: 15008, protocol: TCP }] } }
+        documentIndex: 1
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-istiod }
+        documentIndex: 2
+      - equal:
+          path: 'spec.egress[0].to'
+          value: [{ podSelector: { matchLabels: { app.kubernetes.io/name: istiod } }, namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: istio-system } } }]
+        documentIndex: 2
+
+  - it: istio-ingress settings replace the defaults
+    release:
+      namespace: ingress-gateway
+    set:
+      profiles.istio-ingress.settings: { ports: [8443], clientCidrs: [203.0.113.0/24] }
+    template: templates/networkpolicy/rules.yaml
+    documentSelector: { path: metadata.name, value: allow-ingress-from-clients-to-all }
+    asserts:
+      - equal:
+          path: spec.ingress[0]
+          value:
+            from: [{ ipBlock: { cidr: 203.0.113.0/24 } }]
+            ports: [{ port: 8443, protocol: TCP }]
+
+  - it: istio-ingress under mesh istio needs no mTLS exclusion for its cidrs clients (not a mesh member)
+    release:
+      namespace: ingress-gateway
+    set:
+      mesh: istio
+      profiles.istio-ingress: {}
+    template: templates/istio/authorizationpolicy.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: istio-egress accepts HBONE from every namespace and forwards outside on its ports
+    release:
+      namespace: egress-gateway
+    set:
+      profiles.istio-egress: {}
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - hasDocuments: { count: 3 }
+      - equal: { path: metadata.name, value: allow-ingress-from-all-namespaces-to-all }
+        documentIndex: 0
+      - equal: { path: 'spec.ingress[0].ports', value: [{ port: 15008, protocol: TCP }] }
+        documentIndex: 0
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-external }
+        documentIndex: 1
+      - equal:
+          path: 'spec.egress[0]'
+          value: { to: [{ ipBlock: { cidr: 0.0.0.0/0 } }], ports: [{ port: 443, protocol: TCP }, { port: 80, protocol: TCP }] }
+        documentIndex: 1
+
+  - it: two gateway profiles together render without conflict (both set meshMember false)
+    release:
+      namespace: gateways
+    set:
+      profiles: { istio-ingress: {}, istio-egress: {} }
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  # Overriding a profile
+  - it: a profile entry is switched off with enabled false alone
+    release:
+      namespace: ingress-gateway
+    set:
+      profiles.istio-ingress: {}
+      egress.any.to.istiod: { enabled: false }
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - hasDocuments: { count: 2 }
+      - notEqual: { path: metadata.name, value: allow-egress-from-all-to-istiod }
+
+  - it: a whole profile rule is switched off with enabled false alone
+    set:
+      profiles.istio-system.settings.apiServerCidrs: [172.18.0.0/16]
+      ingress.istiod: { enabled: false }
+    template: templates/networkpolicy/rules.yaml
+    asserts:
+      - hasDocuments: { count: 2 }
+
+  - it: a profile exception is switched off with enabled false alone
+    set:
+      profiles.istio-system.settings.apiServerCidrs: [172.18.0.0/16]
+      exceptions.istiod.policies.restrict-seccomp: { enabled: false }
+    template: templates/exceptions/policyexceptions.yaml
+    asserts:
+      - equal:
+          path: spec.exceptions[4].workloads
+          value: [{ matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart sets no seccompProfile" }]
+
+  - it: the user's meshMember wins over a profile's
+    release:
+      namespace: ingress-gateway
+    set:
+      mesh: istio
+      mtls.mode: PERMISSIVE
+      profiles.istio-ingress: {}
+      meshMember: true
+    template: templates/istio/authorizationpolicy.yaml
+    asserts:
+      - hasDocuments: { count: 3 }   # deny-all-ingress, allow-plaintext-to-all, the clients rule
+
+  # Completeness is checked after layering

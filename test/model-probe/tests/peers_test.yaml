@@ -118,7 +118,7 @@ tests:
 
   - it: a destinations reference takes ports from the definition
     set:
-      posture.egress.grafana.destinations: [sso]
+      posture.egress.grafana.destinations: { sso: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-sso }
     asserts:
       - equal: { path: rule, value: egress.grafana.destinations.sso }

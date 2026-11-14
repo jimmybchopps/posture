@@ -55,7 +55,7 @@ Decisions made in phase 0:
       `any` (see the table in CLAUDE.md).
 - [x] Ports: required and non-empty everywhere they appear; numbers or port objects with a
       numeric `port`; `protocol` defaults to TCP. Port names are a schema error.
-- [x] Unknown preset references (`destinations: [postgress]`) `fail` with the list of known
+- [x] Unknown preset references (`destinations: { postgress: {} }`) `fail` with the list of known
       names.
 - [x] Schema: selector enum, port shape, `any` not allowed as a `serviceAccount` or selector
       value, each `from`/`to` entry is either a workload entry or a `cidrs` entry.
@@ -437,31 +437,152 @@ Decisions made in phase 4:
 
 ---
 
-## Phase 5: boundary integration and egress hostnames (Istio)
+## Phase 5: profiles, egress hostnames, boundary integration (Istio)
 
-`boundary` is a separate chart for the cluster-wide pieces: ingress and egress gateways,
-approved external hostnames, and mesh-wide resources. posture never references or depends on
-it and stays namespace-scoped; the two meet only in e2e, where both are installed. Istio only
-for now; other meshes follow in phases 6 (Linkerd) and 7 (Cilium).
+`boundary` is a separate chart for the cluster-wide pieces: ingress and egress gateways, the
+cluster-wide egress limit, and mesh-wide resources. posture never references or depends on it
+and stays namespace-scoped; the two share a few conventions (gateway namespaces, the default
+egress gateway's name, the `allowedHosts` shape) and meet only in e2e. Istio only for now; other
+meshes follow in phases 6 (Linkerd) and 7 (Cilium).
 
-- [ ] The e2e harness installs `boundary` alongside Istio.
-- [ ] Egress to hostnames under `mesh: istio`: a values shape for limiting a workload's egress
-      to named hosts approved by `boundary`, rendered with the existing `egress-gateway`
-      destination (HBONE 15008 to the egress waypoint) plus whatever per-namespace objects
-      Istio needs, all in the release namespace. Any other mesh `fail`s, naming the rule.
+### 5a. Maps and `enabled` everywhere (breaking, before any release)
+
+- [x] `enabled` (default true) on `ingress.<target>`, `egress.<source>`, every `from`/`to` entry,
+      `mtls.exclusions` objects, and `sources` references (object form
+      `{ ports, enabled }`, with the ports list still accepted).
+- [x] `egress.<source>.destinations` becomes a map (`{ postgres: {}, sso: { enabled: false } }`):
+      a list would be replaced wholesale when values are layered.
+- [x] Disabled entries render nothing, are still validated, and don't count toward name
+      collisions.
+- [x] Update the schema, model, examples, snapshots, and every doc that shows the list form.
+
+Decisions made in 5a:
+
+- Validation splits in two. Structural checks (schema, ports, selectors, peer shape, unknown
+  source or destination names) run on disabled entries too, so a typo never hides behind
+  `enabled: false`. Checks that depend on the surroundings (a destination's required mesh,
+  an exclusion needing a mesh or STRICT, STRICT coverage of `cidrs` sources) run only on
+  enabled entries: a disabled entry asks for nothing, and profiles (5c) need to carry entries
+  a user's setup can't support until they're switched off.
+- A disabled rule disables everything under it, and its children are still validated.
+- The model lists disabled entries (`disabled: [{ rule }]`), and NOTES.txt shows them under
+  "Disabled (enabled: false; validated, not rendered)", not as a warning: switching something
+  off is a normal choice.
+- `enabled` exists only where a source or destination is used, never on its definition: a
+  definition nothing references renders nothing. The schema rejects it there.
+- No compatibility for the old `destinations` list: nothing has been released, so the schema
+  rejects the list form.
+- e2e: `examples/strict.yaml` carries the reverse pair (api -> web) switched off, so the
+  `strict` scenario's existing deny of that path also shows disabled rules render nothing.
+
+### 5b. Gateway presets
+
+- [x] `ingress-gateway` source in namespace `ingress-gateway`; `egress-gateway` destination in
+      namespace `egress-gateway` (were both `gateway`). No shim (nothing is released): the old
+      default is one override away, `sources.ingress-gateway: { namespace: gateway }`.
+
+### 5c. Profiles
+
+- [x] `profiles.<name>.{enabled, settings}` in the schema, one entry per built-in profile.
+- [x] `templates/_profiles.tpl` and the `posture.values` helper (defaults, then profiles, then
+      user values) with the custom deep merge; the model reads it instead of `.Values`.
+- [x] Failures: a profile setting a forbidden key (internal check), two profiles disagreeing on
+      a value, a required setting missing.
+- [x] `posture.dev/profile` annotation; NOTES.txt lists profiles, settings, and disabled profile
+      entries.
+- [x] `meshMember` (default true): false renders no AuthorizationPolicy, PeerAuthentication, or
+      ambient-probe NetworkPolicy; the root-namespace guard for `istio-system`.
+- [x] `istio-system`: the istiod and ztunnel exceptions from `test/e2e/values/istio-system.yaml`,
+      and istiod's traffic: 15012 from every namespace, 15017 from `apiServerCidrs`, 15014 from
+      the `monitoring` source, egress to `kube-api`; ztunnel's metrics (15020) from `monitoring`.
+      `meshMember: false`. Renders with `mesh: none` (installed before Istio) and with
+      `mesh: istio`. The e2e harness switches to it.
+- [x] `istio-ingress`: ingress on the `ports` setting from `clientCidrs`; egress to every pod in
+      every namespace on 15008 only (meshed backends receive gateway traffic as HBONE, so the
+      gateway never needs each application's ports), and to istiod on 15012 (xDS).
+      `meshMember: false`. No exceptions: `boundary` makes the gateway pods compliant.
+- [x] `istio-egress`: ingress on 15008 from every namespace; egress outside the cluster
+      (`0.0.0.0/0`) on the `ports` setting, and to istiod on 15012. `meshMember: false`. No
+      exceptions.
+- [x] Unit tests per profile and per failure; snapshots of each profile's output.
+- [ ] e2e under `MESH=istio` with istio-system behind the profile's NetworkPolicies.
+
+Decisions made in 5c:
+
+- Keys a profile may set (`allowSameNamespace`, `allowDNS`, `meshMember`, `mtls.mode`) have no
+  live default in `values.yaml`, only a commented one; `posture.defaults` applies them beneath
+  the profiles. Helm merges `values.yaml` into `.Values` before templates run, so a live default
+  can't be told apart from a user's value, and would always beat the profile. Existing output
+  is unchanged (every earlier snapshot is byte-identical).
+- `meshMember` (new): istiod, ztunnel, gateways, and waypoints are the mesh, not workloads in
+  it, and in `istio-system` (Istio's root namespace) a selector-less AuthorizationPolicy or
+  PeerAuthentication applies mesh-wide: posture's `deny-all-ingress` there would deny every
+  meshed workload. All three profiles set `meshMember: false`; `mesh: istio` in a namespace
+  named `istio-system` fails unless `meshMember` is false, or authorization is off and
+  `mtls.mode` is inherit. A custom root namespace isn't detected (documented).
+- The schema checks shapes, the model checks completeness: `ports`, `kind`, `policies`, and
+  `from`/`sources` (`to`/`destinations`) are no longer schema-required, because the schema only
+  sees the user's values before layering, and `{ enabled: false }` alone must be able to switch
+  off a profile's entry. The model requires them after layering, for disabled entries too, and
+  also rejects `cidrs` combined with `namespace`/`selector`/`serviceAccount` in one entry (the
+  schema used to, through `oneOf`).
+- Listing a profile turns it on (`enabled` default true, as everywhere since 5a).
+- Gateway profiles egress to istiod on 15012: gateways and waypoints get their configuration by
+  xDS (the plan's text left this out).
+- Profile layering is unit-tested directly through a test-only probe template
+  (`test/model-probe/templates/merge.yaml`), so conflicts and forbidden keys are covered
+  without a built-in profile that triggers them.
+- e2e: istio-system now runs behind the profile's NetworkPolicies (previously exceptions only),
+  with `apiServerCidrs` set to the k3d Docker network at run time, and the release is upgraded
+  to `mesh: istio` after Istio is installed. The gateway profiles' e2e is 5e's, with `boundary`.
+
+### 5d. Egress to hostnames, and release 0.1.0
+
+- [x] `egress.allowedHosts` as described in CLAUDE.md ("Egress to hostnames"): the reserved key,
+      the shared shape, one ServiceEntry per enabled entry, the namespace-wide NetworkPolicy to
+      the waypoint, and the non-istio `fail`.
+- [x] Unit tests: every protocol, `hosts` vs `addresses`, the `TCP` + `hosts` failure,
+      `gateway` override, the egress-gateway destination namespace override.
+- [x] Release machinery, as in the policy repo: `CHANGELOG.md`, `test/release/` (tag check,
+      notes, `build-dist.sh`, and their cases in `make test`), `make release-check`, and
+      `.github/workflows/release.yml` on a `v<version>` tag.
+- [x] Release 0.1.0: remove `(unreleased)` from its changelog section, merge, tag `v0.1.0`.
+
+Decisions made in 5d:
+
+- `protocol` defaults to `TLS`: the common case, matched by SNI, and the only one that keeps
+  the traffic encrypted end to end.
+- `ports` are plain numbers, not port objects: the protocol belongs to the entry, ServiceEntry
+  ports have no ranges, and ztunnel carries no UDP.
+- Resolution follows the hosts: `DNS` for exact names, `DYNAMIC_DNS` for wildcards (Istio's
+  mode for wildcard hosts through a waypoint), `NONE` for addresses. One entry can't mix
+  wildcard and exact hosts.
+- ServiceEntry always needs `hosts`, so an `addresses` entry gets
+  `<entry>.<namespace>.posture.internal`, which is never resolved.
+- `meshMember: false` with an enabled entry fails, like `mesh: none`: the namespace's pods
+  aren't captured by ztunnel, so they'd never reach the waypoint.
+- The waypoint NetworkPolicy is an ordinary model rule (`egress.allowedHosts`), so the
+  existing renderer, 15008 handling, `networkPolicy.egress`, and collision check all apply.
+  Its `posture.dev/profile` is set only when every enabled entry came from one profile.
+- The `egress-gateway` destination must stay a workload in one namespace (its namespace is the
+  ServiceEntries' `use-waypoint-namespace`).
+- No e2e in 5d: it needs `boundary`'s waypoint, so it's 5e's. 0.1.0 ships with that, the gateway
+  profiles' e2e, and the one accepted failure listed as known limitations in the changelog.
+- `Chart.yaml` drops the `linkerd` and `cilium` keywords until phases 6 and 7.
+
+### 5e. Boundary integration
+
+- [ ] The e2e harness installs `boundary` after Istio, with posture's gateway profiles in its
+      two namespaces first.
+- [ ] e2e: an approved host connects through the waypoint; a host `boundary` doesn't list is
+      refused at the waypoint; a namespace that didn't list the host can't reach it; a direct
+      path that skips the gateway is blocked by NetworkPolicy.
+- [ ] Gateway and waypoint pods are admitted with an empty `posture-exceptions` (with the
+      policy chart installed).
 - [ ] Resolve the remaining accepted failure (`deny prometheus/prometheus -> x.intruder:8081`,
       an egress port limit into a namespace without posture; see "Accepted failures" under 1c).
-- [ ] Unit tests (schema, model, renderer, the non-istio `fail`) and e2e: an approved host
-      connects; an unapproved host, and a direct path that skips the gateway, don't.
 
 **Done when** the integration e2e passes under `MESH=istio` with no accepted failures.
-
-Open questions, settled at the start of the phase:
-
-- Where `boundary` lives and how the e2e harness installs it.
-- The values shape for egress to hostnames.
-- Which objects belong to posture (per namespace) and which to `boundary` (cluster-wide).
-- How the remaining accepted failure is resolved.
 
 ---
 
@@ -498,7 +619,7 @@ Open questions, settled at the start of the phase:
       identity rules match `io.cilium.k8s.policy.serviceaccount`; strict mTLS requires Cilium
       mutual authentication, or `fail`s unless the values explicitly accept encryption-only.
 - [ ] Cilium as the gateway: Cilium's Gateway API traffic arrives from its shared Envoy with
-      the reserved `ingress` identity, not from pods in a `gateway` namespace. When the
+      the reserved `ingress` identity, not from pods in the `ingress-gateway` namespace. When the
       cluster uses Cilium's gateway, the `ingress-gateway` source renders as
       `fromEntities: [ingress]` (needs `networkPolicy.provider: cilium`).
 - [ ] The `egress-gateway` destination `fail`s with an explanation: Cilium's egress gateway
@@ -556,7 +677,15 @@ Open questions, settled at the start of the phase:
   its ports; authorization policies list only the user's ports.
 - Istio ambient supports port-level PERMISSIVE under a STRICT namespace, and not DISABLE
   (phase 3 reflects this).
-- Gateway presets use the mesh-neutral namespace `gateway`: `ingress-gateway` as a source,
-  `egress-gateway` (Istio only) as a destination.
+- Gateway presets use the mesh-neutral namespaces `ingress-gateway` (the `ingress-gateway`
+  source) and `egress-gateway` (the `egress-gateway` destination, Istio only), matching
+  `boundary`'s defaults.
+- Built-in profiles (mesh and gateway) live in this chart; application profiles are values
+  files kept outside it. Profiles may set anything about the namespace except `mesh`,
+  `trustDomain`, the troubleshooting switches, and `namePrefix`; conflicting profiles fail.
+- Every rule, peer, reference, exclusion, and exception has `enabled`; references to predefined
+  destinations are a map. `null` is not a documented way to remove anything.
+- Egress to hostnames: `egress.allowedHosts` (namespace-wide, routed through `boundary`'s egress
+  waypoint); the cluster-wide limit is enforced by `boundary` at the waypoint.
 - The `monitoring` source defaults to namespace `prometheus`, workload `prometheus`. Presets
   assume one namespace per application, named after it.

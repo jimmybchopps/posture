@@ -52,9 +52,9 @@ tests:
       - equal: { path: metadata.name, value: allow-egress-from-grafana-to-keycloak }
       - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: egress.grafana.to.keycloak }
 
-  - it: egress.grafana.destinations [postgres]
+  - it: egress.grafana.destinations.postgres
     set:
-      egress.grafana.destinations: [postgres]
+      egress.grafana.destinations: { postgres: {} }
     asserts:
       - equal: { path: metadata.name, value: allow-egress-from-grafana-to-postgres }
       - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: egress.grafana.destinations.postgres }
@@ -65,9 +65,9 @@ tests:
     asserts:
       - equal: { path: metadata.name, value: allow-egress-from-prometheus-to-all-namespaces }
 
-  - it: egress.any.destinations [https]
+  - it: egress.any.destinations.https
     set:
-      egress.any.destinations: [https]
+      egress.any.destinations: { https: {} }
     asserts:
       - equal: { path: metadata.name, value: allow-egress-from-all-to-https }
 
@@ -96,7 +96,7 @@ tests:
           backup-agent: [3000]
           monitoring: [3000]
       ingress.zzz.from.keycloak: { namespace: keycloak, ports: [9] }
-      egress.grafana.destinations: [postgres, sso]
+      egress.grafana.destinations: { postgres: {}, sso: {} }
     documentSelector: { path: metadata.name, value: allow-ingress-from-keycloak-to-grafana }
     asserts:
       - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: ingress.grafana.from.keycloak }
@@ -113,7 +113,7 @@ tests:
 
   - it: a destination keeps its name when the list is reordered or extended
     set:
-      egress.grafana.destinations: [sso, https, postgres, redis]
+      egress.grafana.destinations: { sso: {}, https: {}, postgres: {}, redis: {} }
     documentSelector: { path: metadata.name, value: allow-egress-from-grafana-to-postgres }
     asserts:
       - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: egress.grafana.destinations.postgres }

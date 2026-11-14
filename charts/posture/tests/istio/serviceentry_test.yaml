@@ -1,0 +1,132 @@
+suite: istio serviceentry (egress.allowedHosts)
+templates:
+  - templates/istio/serviceentry.yaml
+release:
+  name: posture
+  namespace: team
+tests:
+  - it: renders nothing without allowedHosts
+    set:
+      mesh: istio
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: renders an exact-host TLS entry by default
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - isKind: { of: ServiceEntry }
+      - isAPIVersion: { of: networking.istio.io/v1 }
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-github }
+      - equal: { path: metadata.namespace, value: team }
+      - equal: { path: 'metadata.labels["istio.io/use-waypoint"]', value: default }
+      - equal: { path: 'metadata.labels["istio.io/use-waypoint-namespace"]', value: egress-gateway }
+      - equal: { path: 'metadata.labels["app.kubernetes.io/instance"]', value: posture }
+      - equal: { path: 'metadata.annotations["posture.dev/rule"]', value: egress.allowedHosts.github }
+      - notExists: { path: 'metadata.annotations["posture.dev/profile"]' }
+      - equal:
+          path: spec
+          value:
+            hosts: [api.github.com]
+            ports: [{ number: 443, name: tls-443, protocol: TLS }]
+            location: MESH_EXTERNAL
+            resolution: DNS
+            exportTo: ["."]
+
+  - it: wildcard hosts resolve per connection (DYNAMIC_DNS)
+    set:
+      mesh: istio
+      egress.allowedHosts.content: { hosts: ["*.githubusercontent.com", "*.example.com"], ports: [443] }
+    asserts:
+      - equal: { path: spec.resolution, value: DYNAMIC_DNS }
+      - equal: { path: spec.hosts, value: ["*.githubusercontent.com", "*.example.com"] }
+
+  - it: HTTP is matched by Host; port names follow the protocol
+    set:
+      mesh: istio
+      egress.allowedHosts.mirror: { hosts: [mirror.example.com], ports: [80, 8080, 80], protocol: HTTP }
+    asserts:
+      - equal:
+          path: spec.ports
+          value:
+            - { number: 80, name: http-80, protocol: HTTP }
+            - { number: 8080, name: http-8080, protocol: HTTP }
+
+  - it: addresses get a synthetic host and resolution NONE
+    set:
+      mesh: istio
+      egress.allowedHosts.partner-db: { addresses: [203.0.113.10, 198.51.100.0/24], ports: [5432], protocol: TCP }
+    asserts:
+      - equal: { path: spec.hosts, value: [partner-db.team.posture.internal] }
+      - equal: { path: spec.addresses, value: [203.0.113.10, 198.51.100.0/24] }
+      - equal: { path: spec.resolution, value: NONE }
+      - equal: { path: spec.ports, value: [{ number: 5432, name: tcp-5432, protocol: TCP }] }
+
+  - it: addresses may use TLS
+    set:
+      mesh: istio
+      egress.allowedHosts.partner: { addresses: [203.0.113.10], ports: [443] }
+    asserts:
+      - equal: { path: 'spec.ports[0].protocol', value: TLS }
+
+  - it: gateway names the waypoint
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], gateway: legacy }
+    asserts:
+      - equal: { path: 'metadata.labels["istio.io/use-waypoint"]', value: legacy }
+
+  - it: the egress-gateway destination's namespace moves the waypoint namespace
+    set:
+      mesh: istio
+      destinations.egress-gateway: { namespace: egress }
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - equal: { path: 'metadata.labels["istio.io/use-waypoint-namespace"]', value: egress }
+
+  - it: namePrefix applies
+    set:
+      mesh: istio
+      namePrefix: team-a
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - equal: { path: metadata.name, value: team-a-allow-egress-from-all-to-github }
+
+  - it: one object per enabled entry; disabled entries render nothing
+    set:
+      mesh: istio
+      egress.allowedHosts:
+        github: { hosts: [api.github.com], ports: [443] }
+        mirror: { hosts: [mirror.example.com], ports: [80], protocol: HTTP }
+        retired: { hosts: [old.example.com], ports: [443], enabled: false }
+    asserts:
+      - hasDocuments: { count: 2 }
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-github }
+        documentIndex: 0
+      - equal: { path: metadata.name, value: allow-egress-from-all-to-mirror }
+        documentIndex: 1
+
+  - it: a disabled entry renders nothing, even without a mesh
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], enabled: false }
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: still renders with NetworkPolicy egress off
+    set:
+      mesh: istio
+      networkPolicy.egress: false
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - hasDocuments: { count: 1 }
+
+  - it: authorization and mTLS settings don't affect it
+    set:
+      mesh: istio
+      authorization.enabled: false
+      mtls.mode: inherit
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - hasDocuments: { count: 1 }

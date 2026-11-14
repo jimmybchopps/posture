@@ -5,13 +5,13 @@ tests:
   - it: valid values render nothing
     set:
       ingress.grafana.sources.monitoring: [3000]
-      egress.grafana.destinations: [postgres]
+      egress.grafana.destinations: { postgres: {} }
     asserts:
       - hasDocuments: { count: 0 }
 
   - it: an unknown destination fails with the known names
     set:
-      egress.grafana.destinations: [postgress]
+      egress.grafana.destinations: { postgress: {} }
     asserts:
       - failedTemplate:
           errorPattern: 'posture: egress.grafana.destinations.postgress: unknown destination "postgress"; known: dns, egress-gateway, https, kube-api, ldap, ntp, postgres, redis, smtp, sso, storage, syslog$'
@@ -19,7 +19,7 @@ tests:
   - it: the known names include custom destinations
     set:
       destinations.vault: { namespace: vault, workload: vault, ports: [8200] }
-      egress.grafana.destinations: [vualt]
+      egress.grafana.destinations: { vualt: {} }
     asserts:
       - failedTemplate:
           errorPattern: 'known: .*syslog, vault$'
@@ -75,7 +75,7 @@ tests:
 
   - it: egress-gateway fails with mesh none
     set:
-      egress.grafana.destinations: [egress-gateway]
+      egress.grafana.destinations: { egress-gateway: {} }
     asserts:
       - failedTemplate:
           errorPattern: 'posture: egress.grafana.destinations.egress-gateway: the destination "egress-gateway" needs mesh: istio .*; mesh is none$'
@@ -83,7 +83,7 @@ tests:
   - it: egress-gateway works with mesh istio
     set:
       mesh: istio
-      egress.grafana.destinations: [egress-gateway]
+      egress.grafana.destinations: { egress-gateway: {} }
     asserts:
       - notFailedTemplate: {}
 
@@ -97,7 +97,7 @@ tests:
   - it: endPort lower than port fails in a destination definition, naming the reference
     set:
       destinations.range: { cidrs: [10.0.0.0/8], ports: [{ port: 9000, endPort: 8000 }] }
-      egress.grafana.destinations: [range]
+      egress.grafana.destinations: { range: {} }
     asserts:
       - failedTemplate:
           errorPattern: "posture: egress.grafana.destinations.range: endPort 8000"
@@ -218,3 +218,254 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "posture: exceptions: 257 policies are excepted; the PolicyExceptions CRD allows at most 256"
+
+  # enabled (phase 5a): disabled entries are still validated...
+  - it: an unknown source fails even when the reference is disabled
+    set:
+      ingress.grafana.sources.monitorng: { ports: [3000], enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: ingress.grafana.sources.monitorng: unknown source "monitorng"'
+
+  - it: an unknown destination fails even when the whole rule is disabled
+    set:
+      egress.grafana: { enabled: false, destinations: { postgress: {} } }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.grafana.destinations.postgress: unknown destination "postgress"'
+
+  - it: a bad port range fails even when the peer is disabled
+    set:
+      ingress.grafana.from.renderer: { ports: [{ port: 9000, endPort: 8000 }], enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana.from.renderer: endPort 8000 is lower than port 9000"
+
+  # ...but checks that depend on the surroundings skip them
+  - it: a disabled egress-gateway reference doesn't need mesh istio
+    set:
+      egress.grafana.destinations.egress-gateway: { enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a disabled exclusion doesn't need a mesh
+    set:
+      mtls.exclusions.api: { ports: [8081], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a disabled exclusion doesn't need STRICT
+    set:
+      mesh: istio
+      mtls.mode: PERMISSIVE
+      mtls.exclusions.api: { ports: [8081], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a disabled exclusion doesn't cover a cidrs source under STRICT
+    set:
+      mesh: istio
+      ingress.grafana.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000] }
+      mtls.exclusions.grafana: { ports: [3000], enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "ingress.grafana.from.vpn: port 3000 is reached from outside the cluster"
+
+  - it: a disabled cidrs source needs no exclusion under STRICT
+    set:
+      mesh: istio
+      ingress.grafana.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  # Profiles (phase 5c): completeness is checked after layering; the root-namespace guard
+  - it: istio-system needs apiServerCidrs
+    release:
+      namespace: istio-system
+    set:
+      profiles.istio-system: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: profiles.istio-system.settings.apiServerCidrs: required"
+
+  - it: mesh istio in istio-system without the profile fails (mesh-wide objects)
+    release:
+      namespace: istio-system
+    set:
+      mesh: istio
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: istio-system is Istio's root namespace"
+
+  - it: the guard also fires with only mTLS left on
+    release:
+      namespace: istio-system
+    set:
+      mesh: istio
+      authorization.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: istio-system is Istio's root namespace"
+
+  - it: a user entry without ports, and no profile to complete it, fails
+    release:
+      namespace: grafana
+    set:
+      ingress.grafana.from.renderer: { enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana.from.renderer: ports are required"
+
+  - it: a user rule with neither from nor sources fails
+    release:
+      namespace: grafana
+    set:
+      ingress.grafana: { selector: app }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana: needs from or sources"
+
+  - it: adding namespace to a profile's cidrs entry fails
+    release:
+      namespace: ingress-gateway
+    set:
+      profiles.istio-ingress: {}
+      ingress.any.from.clients: { namespace: x }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.any.from.clients: cidrs can't be combined with namespace"
+
+  - it: an exception without kind fails
+    release:
+      namespace: grafana
+    set:
+      exceptions.app.policies.disallow-host-path: { reason: x }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: exceptions.app.policies.disallow-host-path: kind is required"
+
+  - it: exclusions fail with meshMember false
+    release:
+      namespace: grafana
+    set:
+      mesh: istio
+      meshMember: false
+      mtls.exclusions.api: [8081]
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: mtls.exclusions.api: exclusions need this namespace in the mesh data plane; meshMember is false"
+
+  # Egress to hostnames (egress.allowedHosts)
+  - it: allowedHosts with TCP and hosts fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], protocol: TCP }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: TCP can't be matched by host name; use addresses, or protocol TLS or HTTP"
+
+  - it: allowedHosts with both hosts and addresses fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com], addresses: [203.0.113.10], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: set hosts or addresses, not both"
+
+  - it: allowedHosts with neither hosts nor addresses fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: hosts or addresses is required"
+
+  - it: allowedHosts without ports fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: ports are required"
+
+  - it: allowedHosts mixing wildcard and exact hosts fails
+    set:
+      mesh: istio
+      egress.allowedHosts.github: { hosts: [api.github.com, "*.githubusercontent.com"], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: wildcard and exact hosts need different resolutions"
+
+  - it: allowedHosts needs mesh istio
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: egress to hostnames needs mesh: istio .*; mesh is none$"
+
+  - it: allowedHosts needs meshMember
+    set:
+      mesh: istio
+      meshMember: false
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: egress to hostnames needs this namespace in the mesh data plane .*; meshMember is false"
+
+  - it: a disabled allowedHosts entry skips the mesh check
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a disabled allowedHosts entry still gets the structural checks
+    set:
+      egress.allowedHosts.github: { hosts: [api.github.com], protocol: TCP, ports: [443], enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "TCP can't be matched by host name"
+
+  - it: allowedHosts needs egress-gateway in one namespace (cidrs)
+    set:
+      mesh: istio
+      destinations.egress-gateway: { cidrs: [10.0.0.0/8] }
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.allowedHosts.github: destinations.egress-gateway must be a workload in one namespace"
+
+  - it: allowedHosts needs egress-gateway in one namespace (namespace any)
+    set:
+      mesh: istio
+      destinations.egress-gateway: { namespace: any }
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "destinations.egress-gateway must be a workload in one namespace"
+
+  - it: an allowedHosts entry colliding with a destination reference fails
+    set:
+      mesh: istio
+      destinations.github: { cidrs: [192.0.2.0/24], ports: [443] }
+      egress.any.destinations.github: {}
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.any.destinations.github and egress.allowedHosts.github both produce the object name "allow-egress-from-all-to-github"'
+
+  - it: an allowedHosts entry named egress-gateway collides with the waypoint rule
+    set:
+      mesh: istio
+      egress.allowedHosts.egress-gateway: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.allowedHosts and egress.allowedHosts.egress-gateway both produce the object name "allow-egress-from-all-to-egress-gateway"'
+
+  - it: an explicit egress-gateway reference from every pod collides with the waypoint rule
+    set:
+      mesh: istio
+      egress.any.destinations.egress-gateway: {}
+      egress.allowedHosts.github: { hosts: [api.github.com], ports: [443] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: egress.any.destinations.egress-gateway and egress.allowedHosts both produce"

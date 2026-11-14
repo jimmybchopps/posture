@@ -1,5 +1,7 @@
 # No blanket same-namespace allow: pods in this namespace only reach each other where a rule
 # says so, in both directions (web's egress to api, and api's ingress from web).
+# The reverse pair (api -> web) is written out but switched off with enabled: false: it's
+# validated, renders nothing, and is listed in NOTES.txt.
 allowSameNamespace: false
 
 ingress:
@@ -7,9 +9,19 @@ ingress:
     from:
       web:
         ports: [8080]
+  web:
+    from:
+      api:
+        ports: [8080]
+        enabled: false
 
 egress:
   web:
     to:
       api:
+        ports: [8080]
+  api:
+    enabled: false
+    to:
+      web:
         ports: [8080]

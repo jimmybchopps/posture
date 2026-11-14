@@ -5,7 +5,8 @@
 #   MESH=none:   cluster, Calico, the PolicyExceptions CRD (every posture install renders
 #                posture-exceptions); only the exceptions scenario installs the policy chart.
 #   MESH=istio:  cluster, Calico, the policy chart (POLICY_FIRST=1: before the mesh, for the
-#                whole run), istio-system's exceptions (values/istio-system.yaml), then Istio.
+#                whole run), posture in istio-system with the istio-system profile
+#                (values/istio-system.yaml), then Istio, then that posture upgraded to mesh: istio.
 #
 # Usage: test/e2e/run.sh <none|istio> [scenario...]
 #   Normally run through `make e2e MESH=none|istio`, which installs the pinned tools and sets
@@ -69,13 +70,17 @@ else
   create_cluster
   install_cni
   if [[ $POLICY_FIRST == 1 ]]; then
-    # As on a real cluster: the policies first (with their CRD), then the mesh's namespace
-    # exceptions, then the mesh, whose workloads are admitted against the baseline.
-    log "installing the policy chart before the mesh"
+    # As on a real cluster: the policies first (with their CRD), then posture in the mesh's
+    # namespace (its exceptions and NetworkPolicies), then the mesh, whose workloads are admitted
+    # against the baseline and run behind those NetworkPolicies, then posture switched to the mesh.
+    log "installing the policy chart and istio-system's posture before the mesh"
     install_policy_chart
-    install_platform_exceptions
+    install_platform_posture
   fi
-  if [[ $MESH == istio ]]; then install_istio; fi
+  if [[ $MESH == istio ]]; then
+    install_istio
+    upgrade_platform_posture
+  fi
 fi
 if [[ $POLICY_FIRST == 0 ]]; then
   # Every posture install renders posture-exceptions, so the PolicyExceptions CRD must exist. On
