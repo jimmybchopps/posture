@@ -16,6 +16,7 @@ The most ports one rule's AuthorizationPolicy may list once ranges are expanded.
 {{/*
 A complete security.istio.io/v1 object: an AuthorizationPolicy, or the kind given.
 Input: dict "root" $ "name" <name> "rule" <values path> "spec" <dict> ["kind" <kind>]
+       ["profile" <name>]
 */}}
 {{- define "posture.istio.object" -}}
 apiVersion: security.istio.io/v1
@@ -26,7 +27,7 @@ metadata:
   labels:
     {{- include "posture.labels" .root | nindent 4 }}
   annotations:
-    {{- include "posture.annotations" .rule | nindent 4 }}
+    {{- include "posture.annotations" (dict "rule" .rule "profile" .profile) | nindent 4 }}
 spec:
   {{- toYaml .spec | nindent 2 }}
 {{- end -}}

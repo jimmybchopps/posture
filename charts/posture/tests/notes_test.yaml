@@ -185,3 +185,37 @@ tests:
       ingress.grafana.from.renderer: { ports: [3000] }
     asserts:
       - notMatchRegexRaw: { pattern: "Disabled \\(" }
+
+  # Profiles (phase 5c)
+  - it: lists enabled profiles with their settings, and listed-but-off ones
+    set:
+      profiles:
+        istio-ingress: { settings: { ports: [8443] } }
+        istio-egress: { enabled: false }
+    asserts:
+      - matchRegexRaw: { pattern: "Profiles \\(objects they produce carry the posture.dev/profile annotation\\):\\n  - istio-egress \\(enabled: false\\)\\n  - istio-ingress: clientCidrs=\\[\"10.0.0.0/8\",\"172.16.0.0/12\",\"192.168.0.0/16\"\\], ports=\\[8443\\]\\n" }
+
+  - it: no profiles section without profiles
+    asserts:
+      - notMatchRegexRaw: { pattern: "Profiles \\(" }
+
+  - it: a disabled entry from a profile names the profile
+    set:
+      profiles.istio-ingress: {}
+      egress.any.to.istiod: { enabled: false }
+    asserts:
+      - matchRegexRaw: { pattern: "  - egress.any.to.istiod \\(profile istio-ingress\\)\\n" }
+
+  - it: says when the namespace isn't in the mesh data plane, without the authorization and mTLS notes
+    set:
+      mesh: istio
+      meshMember: false
+    asserts:
+      - matchRegexRaw: { pattern: "isn't in the mesh data plane \\(meshMember: false\\)" }
+      - notMatchRegexRaw: { pattern: "Authorization \\(Istio ambient\\)" }
+      - notMatchRegexRaw: { pattern: "mTLS \\(Istio ambient\\)" }
+      - notMatchRegexRaw: { pattern: "authorizationpolicies|peerauthentications" }
+
+  - it: the kubectl command shows each object's profile
+    asserts:
+      - matchRegexRaw: { pattern: "PROFILE:.metadata.annotations.posture\\\\.dev/profile" }

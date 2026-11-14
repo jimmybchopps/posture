@@ -7,29 +7,35 @@ model, many renderers"). Renderers call:
 Shape:
 
   mesh, namespace, trustDomain, allowSameNamespace
+  meshMember: true | false                # false: no authorization, mTLS, or ambient probes
+  profiles: [{ name, enabled, settings? }] # every profile listed, in name order
   networkPolicy: { ingress, egress }      # which directions get NetworkPolicies
   authorization: { enabled }              # whether the mesh's authorization policies render
   mtls:                                   # see posture.mtls
     mode: STRICT | PERMISSIVE | inherit
-    exclusions: [{ key, name, rule, labels, ports: [int] }]   # allow-plaintext-to-<key>
+    exclusions: [{ key, name, rule, profile, labels, ports: [int] }]   # allow-plaintext-to-<key>
   exceptions:                             # see posture.exceptions
     enabled: true                         # policyExceptions.enabled: render posture-exceptions
     name: posture-exceptions              # fixed; namePrefix doesn't apply
     policies:                             # sorted by kind, then name; disabled and expired left out
       - { kind, name, workloads: [{ matchLabels, reason?, expires? }] }   # workloads by key
     expired: [{ rule, expires }]          # left out at this render (NOTES warning)
+    profiles: [name]                      # profiles that contributed an exception, sorted
   fixed:                                  # fixed objects; a key is absent when not wanted
+                                          # (each also has profile: "" or the profile that set
+                                          # the key driving it, when the user didn't)
     denyIngress:   { name, rule }         # deny-all-ingress
     denyEgress:    { name, rule }         # deny-all-egress
     sameNamespace: { name, rule }         # allow-same-namespace (allowSameNamespace)
     ambientProbes: { name, rule }         # allow-ingress-from-ambient-probes-to-all (istio)
     mtlsNamespace: { name, rule }         # mtls-<mode> (a mesh, mode not inherit)
     plaintextAll:  { name, rule }         # allow-plaintext-to-all (a mesh, mode PERMISSIVE)
-  disabled: [{ rule }]                    # entries with enabled: false (theirs or a parent's),
+  disabled: [{ rule, profile }]           # entries with enabled: false (theirs or a parent's),
                                           # validated but not rendered; rules, then exclusions
   rules:                                  # one per target and peer pair, in values order
     - name: allow-ingress-from-keycloak-to-grafana
       rule: ingress.grafana.from.keycloak # the posture.dev/rule annotation
+      profile: ""                         # the profile that set this entry (posture.dev/profile)
       direction: ingress | egress
       target:                             # the pods in this namespace the rule applies to
         key: grafana
@@ -42,6 +48,11 @@ Shape:
         serviceAccount: ""                #                    (inCluster only)
         cidrs: [{ cidr, except: [] }]     #                    (outside only)
       ports: [{ port, protocol, endPort? }]
+
+Values are the effective values (posture.values, _profiles.tpl): defaults, then enabled
+profiles, then the user's values. .Values is read directly only to tell whether the user set a
+fixed key a profile also sets (posture.dev/profile on fixed objects), and for namePrefix in
+posture.name, which profiles can't set.
 
 The model is mesh-neutral: labels and namespace scopes, never NetworkPolicy fields. It holds
 every enabled rule whatever networkPolicy says; each renderer decides what it renders.
@@ -284,6 +295,17 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
 {{- define "posture.addPeerRules" -}}
 {{- $ctx := . -}}
 {{- range $key, $entry := .entries -}}
+  {{- $path := printf "%s.%s" $ctx.path $key -}}
+  {{- if not $entry.ports -}}
+    {{- fail (printf "posture: %s: ports are required (a non-empty list)" $path) -}}
+  {{- end -}}
+  {{- if hasKey $entry "cidrs" -}}
+    {{- range list "namespace" "selector" "serviceAccount" -}}
+      {{- if hasKey $entry . -}}
+        {{- fail (printf "posture: %s: cidrs can't be combined with %s; an entry is either outside the cluster (cidrs) or inside it" $path .) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
   {{- $on := and $ctx.enabled (eq (include "posture.enabled" $entry) "true") -}}
   {{- $spec := omit $entry "ports" "enabled" -}}
   {{- if not (hasKey $spec "cidrs") -}}
@@ -296,8 +318,25 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
 
 {{- define "posture.model" -}}
 {{- $root := . -}}
-{{- $v := .Values -}}
+{{- $valuesOut := dict -}}
+{{- $_ := include "posture.values" (dict "root" . "out" $valuesOut) -}}
+{{- $v := $valuesOut.values -}}
+{{- $origins := $valuesOut.origins -}}
 {{- $mesh := $v.mesh -}}
+{{- $member := $v.meshMember -}}
+
+{{- /* Istio's root namespace: namespace-wide authorization and mTLS objects there apply to the
+whole mesh. A custom root namespace (meshConfig.rootNamespace) isn't detected. */ -}}
+{{- if and (eq $mesh "istio") $member (eq .Release.Namespace "istio-system") (or $v.authorization.enabled (ne $v.mtls.mode "inherit")) -}}
+  {{- fail "posture: istio-system is Istio's root namespace, where namespace-wide AuthorizationPolicies and PeerAuthentications apply to the whole mesh (posture's deny-all-ingress would deny every meshed workload); enable profiles.istio-system, or set meshMember: false" -}}
+{{- end -}}
+
+{{- /* The profile behind a fixed key, if a profile set it and the user didn't. */ -}}
+{{- $userMtls := $root.Values.mtls | default dict -}}
+{{- $fixedProfile := dict -}}
+{{- range $key, $userSet := dict "allowSameNamespace" (hasKey $root.Values "allowSameNamespace") "allowDNS" (hasKey $root.Values "allowDNS") "mtls.mode" (hasKey $userMtls "mode") -}}
+  {{- $_ := set $fixedProfile $key (ternary "" (get $origins $key | default "") $userSet) -}}
+{{- end -}}
 
 {{- $out := dict -}}
 {{- $_ := include "posture.resolveDefinitions" (dict "kind" "sources" "presets" (include "posture.presets.sources" . | fromYaml) "user" $v.sources "out" $out) -}}
@@ -310,6 +349,9 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
 
 {{- range $key, $rule := $v.ingress -}}
   {{- $path := printf "ingress.%s" $key -}}
+  {{- if not (or $rule.from $rule.sources) -}}
+    {{- fail (printf "posture: %s: needs from or sources" $path) -}}
+  {{- end -}}
   {{- $ruleOn := eq (include "posture.enabled" $rule) "true" -}}
   {{- $selector := $rule.selector | default "name" -}}
   {{- $target := include "posture.target" (dict "key" $key "selector" $selector) | fromJson -}}
@@ -319,6 +361,9 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
     {{- $on := and $ruleOn (eq (include "posture.enabled" $ref) "true") -}}
     {{- $ports := $ref -}}
     {{- if kindIs "map" $ref -}}{{- $ports = $ref.ports -}}{{- end -}}
+    {{- if not $ports -}}
+      {{- fail (printf "posture: %s: ports are required (the ports on %s this source reaches)" $rulePath $key) -}}
+    {{- end -}}
     {{- $found := dict -}}
     {{- $_ := include "posture.lookupDefinition" (dict "kind" "source" "name" $name "definitions" $sources "rule" $rulePath "mesh" $mesh "enabled" $on "out" $found) -}}
     {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "ingress" "rule" $rulePath "target" $target "peerKey" $name "peerSpec" $found.definition "peerToken" $name "defaultSelector" "name" "ports" $ports "enabled" $on) -}}
@@ -327,6 +372,9 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
 
 {{- range $key, $rule := $v.egress -}}
   {{- $path := printf "egress.%s" $key -}}
+  {{- if not (or $rule.to $rule.destinations) -}}
+    {{- fail (printf "posture: %s: needs to or destinations" $path) -}}
+  {{- end -}}
   {{- $ruleOn := eq (include "posture.enabled" $rule) "true" -}}
   {{- $selector := $rule.selector | default "name" -}}
   {{- $target := include "posture.target" (dict "key" $key "selector" $selector) | fromJson -}}
@@ -347,25 +395,32 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
 {{- end -}}
 
 {{- $fixed := dict
-  "denyIngress" (dict "name" (include "posture.name" (dict "root" $root "rule" "networkPolicy.ingress" "fixed" "deny-all-ingress")) "rule" "networkPolicy.ingress")
-  "denyEgress" (dict "name" (include "posture.name" (dict "root" $root "rule" "networkPolicy.egress" "fixed" "deny-all-egress")) "rule" "networkPolicy.egress") -}}
+  "denyIngress" (dict "name" (include "posture.name" (dict "root" $root "rule" "networkPolicy.ingress" "fixed" "deny-all-ingress")) "rule" "networkPolicy.ingress" "profile" "")
+  "denyEgress" (dict "name" (include "posture.name" (dict "root" $root "rule" "networkPolicy.egress" "fixed" "deny-all-egress")) "rule" "networkPolicy.egress" "profile" "") -}}
 {{- if $v.allowSameNamespace -}}
-  {{- $_ := set $fixed "sameNamespace" (dict "name" (include "posture.name" (dict "root" $root "rule" "allowSameNamespace" "fixed" "allow-same-namespace")) "rule" "allowSameNamespace") -}}
+  {{- $_ := set $fixed "sameNamespace" (dict "name" (include "posture.name" (dict "root" $root "rule" "allowSameNamespace" "fixed" "allow-same-namespace")) "rule" "allowSameNamespace" "profile" $fixedProfile.allowSameNamespace) -}}
 {{- end -}}
-{{- if eq $mesh "istio" -}}
-  {{- $_ := set $fixed "ambientProbes" (dict "name" (include "posture.name" (dict "root" $root "rule" "mesh" "fixed" "allow-ingress-from-ambient-probes-to-all")) "rule" "mesh") -}}
+{{- if and (eq $mesh "istio") $member -}}
+  {{- $_ := set $fixed "ambientProbes" (dict "name" (include "posture.name" (dict "root" $root "rule" "mesh" "fixed" "allow-ingress-from-ambient-probes-to-all")) "rule" "mesh" "profile" "") -}}
 {{- end -}}
 
 {{- $mtlsOut := dict -}}
-{{- $_ := include "posture.mtls" (dict "root" $root "mesh" $mesh "rules" $acc.rules "fixed" $fixed "out" $mtlsOut) -}}
+{{- $_ := include "posture.mtls" (dict "root" $root "values" $v "mesh" $mesh "member" $member "origins" $origins "modeProfile" (get $fixedProfile "mtls.mode") "rules" $acc.rules "fixed" $fixed "out" $mtlsOut) -}}
 
 {{- $_ := include "posture.checkCollisions" (dict "fixed" $fixed "rules" (concat $acc.rules $mtlsOut.mtls.exclusions)) -}}
 
 {{- $exceptionsOut := dict -}}
-{{- $_ := include "posture.exceptions" (dict "root" $root "out" $exceptionsOut) -}}
+{{- $_ := include "posture.exceptions" (dict "root" $root "values" $v "origins" $origins "out" $exceptionsOut) -}}
 
+{{- /* Which profile each rule and disabled entry came from (posture.dev/profile). */ -}}
+{{- range $acc.rules -}}
+  {{- $_ := set . "profile" (ternary (get $fixedProfile "allowDNS") (get $origins .rule | default "") (eq .rule "allowDNS")) -}}
+{{- end -}}
 {{- $disabled := $acc.disabled -}}
 {{- range $mtlsOut.mtls.disabled -}}{{- $disabled = append $disabled . -}}{{- end -}}
+{{- range $disabled -}}
+  {{- $_ := set . "profile" (get $origins .rule | default "") -}}
+{{- end -}}
 
 {{- toJson (dict
   "mesh" $mesh
@@ -376,6 +431,8 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
   "mtls" (omit $mtlsOut.mtls "disabled")
   "exceptions" $exceptionsOut.exceptions
   "allowSameNamespace" $v.allowSameNamespace
+  "meshMember" $member
+  "profiles" $valuesOut.profiles
   "fixed" $fixed
   "rules" $acc.rules
   "disabled" $disabled) -}}
@@ -390,13 +447,16 @@ Adds fixed.mtlsNamespace (mtls-<mode>, unless inherit) and fixed.plaintextAll
 (allow-plaintext-to-all, PERMISSIVE) when a mesh is set.
 Disabled exclusions (object form, enabled: false) are validated like the rest but skip the
 mesh and mode checks, render nothing, and don't cover any port.
-Input: dict "root" "mesh" "rules" "fixed" "out"; sets out.mtls:
-  { mode, exclusions: [{ key, name, rule, labels, ports: [int] }], disabled: [{ rule }] }
+With meshMember false the namespace isn't in the mesh data plane: nothing is managed, and
+enabled exclusions fail, as with mesh: none.
+Input: dict "root" "values" (effective) "mesh" "member" "origins" "modeProfile" "rules" "fixed"
+"out"; sets out.mtls:
+  { mode, exclusions: [{ key, name, rule, profile, labels, ports: [int] }], disabled: [{ rule }] }
   (out.mtls.disabled is merged into the model's disabled, not output under mtls)
 */}}
 {{- define "posture.mtls" -}}
 {{- $root := .root -}}
-{{- $v := $root.Values -}}
+{{- $v := .values -}}
 {{- $mode := $v.mtls.mode -}}
 {{- $exclusions := list -}}
 {{- $disabled := list -}}
@@ -406,6 +466,8 @@ Input: dict "root" "mesh" "rules" "fixed" "out"; sets out.mtls:
   {{- if not $on -}}
   {{- else if eq $.mesh "none" -}}
     {{- fail (printf "posture: %s: exclusions need a mesh to accept plaintext beside mTLS; mesh is none" $path) -}}
+  {{- else if not $.member -}}
+    {{- fail (printf "posture: %s: exclusions need this namespace in the mesh data plane; meshMember is false" $path) -}}
   {{- else if ne $mode "STRICT" -}}
     {{- fail (printf "posture: %s: exclusions only apply with mtls.mode STRICT; mode is %s (%s)" $path $mode (ternary "every port already accepts plaintext" "the chart isn't managing mTLS" (eq $mode "PERMISSIVE"))) -}}
   {{- end -}}
@@ -415,22 +477,25 @@ Input: dict "root" "mesh" "rules" "fixed" "out"; sets out.mtls:
     {{- $ports = $entry.ports -}}
     {{- $selector = $entry.selector | default "name" -}}
   {{- end -}}
+  {{- if not $ports -}}
+    {{- fail (printf "posture: %s: ports are required (a non-empty list)" $path) -}}
+  {{- end -}}
   {{- $intPorts := list -}}
   {{- range $ports -}}{{- $intPorts = append $intPorts (int .) -}}{{- end -}}
   {{- $name := include "posture.name" (dict "root" $root "rule" $path "fixed" (printf "allow-plaintext-to-%s" $key)) -}}
   {{- $labels := dict (include "posture.selectorLabel" $selector) $key -}}
   {{- if $on -}}
-    {{- $exclusions = append $exclusions (dict "key" $key "name" $name "rule" $path "labels" $labels "ports" ($intPorts | uniq)) -}}
+    {{- $exclusions = append $exclusions (dict "key" $key "name" $name "rule" $path "profile" (get $.origins $path | default "") "labels" $labels "ports" ($intPorts | uniq)) -}}
   {{- else -}}
     {{- $disabled = append $disabled (dict "rule" $path) -}}
   {{- end -}}
 {{- end -}}
-{{- if ne .mesh "none" -}}
+{{- if and (ne .mesh "none") .member -}}
   {{- if ne $mode "inherit" -}}
-    {{- $_ := set .fixed "mtlsNamespace" (dict "name" (include "posture.name" (dict "root" $root "rule" "mtls.mode" "fixed" (printf "mtls-%s" (lower $mode)))) "rule" "mtls.mode") -}}
+    {{- $_ := set .fixed "mtlsNamespace" (dict "name" (include "posture.name" (dict "root" $root "rule" "mtls.mode" "fixed" (printf "mtls-%s" (lower $mode)))) "rule" "mtls.mode" "profile" .modeProfile) -}}
   {{- end -}}
   {{- if eq $mode "PERMISSIVE" -}}
-    {{- $_ := set .fixed "plaintextAll" (dict "name" (include "posture.name" (dict "root" $root "rule" "mtls.mode" "fixed" "allow-plaintext-to-all")) "rule" "mtls.mode") -}}
+    {{- $_ := set .fixed "plaintextAll" (dict "name" (include "posture.name" (dict "root" $root "rule" "mtls.mode" "fixed" "allow-plaintext-to-all")) "rule" "mtls.mode" "profile" .modeProfile) -}}
   {{- end -}}
   {{- if eq $mode "STRICT" -}}
     {{- range $rule := .rules -}}
@@ -469,10 +534,13 @@ remove an exception. The object name is fixed (the policies' paramRef names it),
 namePrefix doesn't apply and it can't collide with the allow- and deny- names.
 Limits are the CRD's (policy.posture.dev_policyexceptions.yaml): 256 policies, 64 workloads
 per policy.
-Input: dict "root" "out"; sets out.exceptions (see the model's shape above).
+Input: dict "root" "values" (effective) "origins" "out"; sets out.exceptions (see the model's
+shape above).
 */}}
 {{- define "posture.exceptions" -}}
-{{- $v := .root.Values -}}
+{{- $v := .values -}}
+{{- $origins := .origins -}}
+{{- $fromProfiles := dict -}}
 {{- $enabled := $v.policyExceptions.enabled -}}
 {{- $entries := $v.exceptions | default dict -}}
 {{- if and $entries (not $enabled) -}}
@@ -483,8 +551,14 @@ Input: dict "root" "out"; sets out.exceptions (see the model's shape above).
 {{- $expired := list -}}
 {{- range $workload, $entry := $entries -}}
   {{- $labels := dict (include "posture.selectorLabel" ($entry.selector | default "name")) $workload -}}
+  {{- if not $entry.policies -}}
+    {{- fail (printf "posture: exceptions.%s: policies are required" $workload) -}}
+  {{- end -}}
   {{- range $policy, $p := $entry.policies -}}
     {{- $path := printf "exceptions.%s.policies.%s" $workload $policy -}}
+    {{- if not $p.kind -}}
+      {{- fail (printf "posture: %s: kind is required (ValidatingAdmissionPolicy or MutatingAdmissionPolicy)" $path) -}}
+    {{- end -}}
     {{- $on := ternary $p.enabled true (hasKey $p "enabled") -}}
     {{- $expires := "" -}}
     {{- if hasKey $p "expires" -}}
@@ -497,6 +571,7 @@ Input: dict "root" "out"; sets out.exceptions (see the model's shape above).
     {{- else if and $expires (lt $expires $today) -}}
       {{- $expired = append $expired (dict "rule" $path "expires" $expires) -}}
     {{- else -}}
+      {{- with get $origins $path -}}{{- $_ := set $fromProfiles . true -}}{{- end -}}
       {{- $w := dict "matchLabels" $labels -}}
       {{- with $p.reason -}}{{- $_ := set $w "reason" . -}}{{- end -}}
       {{- with $expires -}}{{- $_ := set $w "expires" . -}}{{- end -}}
@@ -518,7 +593,7 @@ Input: dict "root" "out"; sets out.exceptions (see the model's shape above).
 {{- if gt (len $policies) 256 -}}
   {{- fail (printf "posture: exceptions: %d policies are excepted; the PolicyExceptions CRD allows at most 256" (len $policies)) -}}
 {{- end -}}
-{{- $_ := set .out "exceptions" (dict "enabled" $enabled "name" "posture-exceptions" "policies" $policies "expired" $expired) -}}
+{{- $_ := set .out "exceptions" (dict "enabled" $enabled "name" "posture-exceptions" "policies" $policies "expired" $expired "profiles" (keys $fromProfiles | sortAlpha)) -}}
 {{- end -}}
 
 {{/*

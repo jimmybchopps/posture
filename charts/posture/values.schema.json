@@ -69,7 +69,6 @@
               {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["ports"],
                 "properties": {
                   "enabled": {
                     "$ref": "#/definitions/enabled"
@@ -86,6 +85,78 @@
           }
         }
       }
+    },
+    "profiles": {
+      "description": "Built-in profiles. Listing one turns it on; enabled: false keeps it, off.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "istio-system": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "$ref": "#/definitions/enabled"
+            },
+            "settings": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "apiServerCidrs": {
+                  "description": "Where the API server calls istiod's webhooks from (required).",
+                  "$ref": "#/definitions/cidrs"
+                }
+              }
+            }
+          }
+        },
+        "istio-ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "$ref": "#/definitions/enabled"
+            },
+            "settings": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "ports": {
+                  "description": "The gateway's listener ports (default 443, 80).",
+                  "$ref": "#/definitions/ports"
+                },
+                "clientCidrs": {
+                  "description": "Where clients connect from (default the private ranges).",
+                  "$ref": "#/definitions/cidrs"
+                }
+              }
+            }
+          }
+        },
+        "istio-egress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "$ref": "#/definitions/enabled"
+            },
+            "settings": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "ports": {
+                  "description": "The ports the waypoint forwards to (default 443, 80).",
+                  "$ref": "#/definitions/ports"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "meshMember": {
+      "description": "Whether this namespace's pods are in the mesh data plane (default true). false: NetworkPolicies and exceptions only.",
+      "type": "boolean"
     },
     "allowSameNamespace": {
       "description": "Allow all traffic between pods in this namespace.",
@@ -209,11 +280,9 @@
       }
     },
     "exception": {
+      "description": "Completeness (policies) is checked after profiles are layered in.",
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "policies"
-      ],
       "properties": {
         "selector": {
           "$ref": "#/definitions/selector"
@@ -239,11 +308,9 @@
       }
     },
     "policyException": {
+      "description": "Completeness (kind) is checked after profiles are layered in, so { enabled: false } can switch off a profile's exception.",
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
       "properties": {
         "kind": {
           "type": "string",
@@ -358,11 +425,9 @@
       }
     },
     "workloadPeer": {
+      "description": "Completeness (ports) is checked after profiles are layered in, so a partial entry can override or switch off a profile's.",
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "ports"
-      ],
       "properties": {
         "enabled": {
           "$ref": "#/definitions/enabled"
@@ -385,8 +450,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "cidrs",
-        "ports"
+        "cidrs"
       ],
       "properties": {
         "enabled": {
@@ -404,9 +468,6 @@
       "description": "Every pod (in the namespace given). No selector or serviceAccount.",
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "ports"
-      ],
       "properties": {
         "enabled": {
           "$ref": "#/definitions/enabled"
@@ -494,19 +555,7 @@
     "ingressRule": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Needs at least one of from or sources.",
-      "anyOf": [
-        {
-          "required": [
-            "from"
-          ]
-        },
-        {
-          "required": [
-            "sources"
-          ]
-        }
-      ],
+      "description": "Needs at least one of from or sources, checked after profiles are layered in.",
       "properties": {
         "enabled": {
           "$ref": "#/definitions/enabled"
@@ -532,7 +581,6 @@
               {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["ports"],
                 "properties": {
                   "enabled": {
                     "$ref": "#/definitions/enabled"
@@ -550,19 +598,7 @@
     "egressRule": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Needs at least one of to or destinations.",
-      "anyOf": [
-        {
-          "required": [
-            "to"
-          ]
-        },
-        {
-          "required": [
-            "destinations"
-          ]
-        }
-      ],
+      "description": "Needs at least one of to or destinations, checked after profiles are layered in.",
       "properties": {
         "enabled": {
           "$ref": "#/definitions/enabled"

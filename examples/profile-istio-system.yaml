@@ -1,0 +1,14 @@
+# Values for the "istio-system" namespace under Istio ambient: the istio-system profile gives
+# istiod and ztunnel their exceptions and the traffic they need (xDS on 15012 from every
+# namespace, webhooks on 15017 from the API server, metrics to Prometheus, istiod to the API
+# server). It sets meshMember: false, so no AuthorizationPolicies or PeerAuthentications are
+# rendered: istio-system is Istio's root namespace, where they would apply to the whole mesh.
+#
+# Installed before Istio with mesh: none, then upgraded with mesh: istio; both render the same,
+# apart from 15008 on in-cluster peers.
+mesh: istio
+
+profiles:
+  istio-system:
+    settings:
+      apiServerCidrs: [172.18.0.0/16]   # where the API server calls istiod's webhooks from

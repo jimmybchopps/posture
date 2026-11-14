@@ -15,6 +15,6 @@ enabled direction.
 {{- end -}}
 {{- if $spec.policyTypes }}
 ---
-{{ include "posture.np.object" (dict "root" $ "name" .name "rule" .rule "spec" $spec) }}
+{{ include "posture.np.object" (dict "root" $ "name" .name "rule" .rule "profile" .profile "spec" $spec) }}
 {{- end -}}
 {{- end -}}

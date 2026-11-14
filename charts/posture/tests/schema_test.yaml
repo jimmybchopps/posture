@@ -477,3 +477,49 @@ tests:
       destinations.vault: { namespace: vault, workload: vault, ports: [8200], enabled: false }
     asserts:
       - failedTemplate: {}
+
+  # Profiles (phase 5c)
+  - it: accepts every profile and setting
+    release:
+      namespace: x
+    set:
+      profiles:
+        istio-system: { settings: { apiServerCidrs: [10.0.0.0/24] } }
+        istio-ingress: { enabled: true, settings: { ports: [8443], clientCidrs: [203.0.113.0/24] } }
+        istio-egress: { enabled: false, settings: { ports: [443] } }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects an unknown profile
+    set:
+      profiles.istio-sytem: {}
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown profile setting
+    set:
+      profiles.istio-ingress.settings.port: [443]
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a malformed profile setting
+    set:
+      profiles.istio-system.settings.apiServerCidrs: [not-a-cidr]
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a non-boolean meshMember
+    set:
+      meshMember: "no"
+    asserts:
+      - failedTemplate: {}
+
+  - it: accepts partial entries, so a profile's can be overridden or switched off
+    release:
+      namespace: x
+    set:
+      profiles.istio-ingress: {}
+      ingress.any.from.clients: { enabled: false }
+      egress.any: { enabled: false }
+    asserts:
+      - notFailedTemplate: {}

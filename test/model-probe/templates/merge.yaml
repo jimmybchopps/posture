@@ -1,0 +1,20 @@
+{{- /*
+Test-only: posture.deepMerge and posture.layerProfiles, called directly, so their rules can be
+tested without a built-in profile that exercises them (conflicts, forbidden keys).
+  mergeTest:  { base, over }            -> kind: Merge, result
+  layerTest:  [{ name, values }, ...]   -> kind: Layer, layer, origins
+Renders nothing unless the key is set.
+*/ -}}
+{{- with .Values.mergeTest -}}
+{{- $out := dict -}}
+{{- $_ := include "posture.deepMerge" (dict "base" .base "over" .over "out" $out) -}}
+kind: Merge
+{{ toYaml (dict "result" $out.result) }}
+{{- end -}}
+{{- with .Values.layerTest }}
+---
+{{- $out := dict -}}
+{{- $_ := include "posture.layerProfiles" (dict "outputs" . "out" $out) }}
+kind: Layer
+{{ toYaml (dict "layer" $out.layer "origins" $out.origins) }}
+{{- end -}}

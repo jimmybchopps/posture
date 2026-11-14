@@ -11,12 +11,45 @@
 # enabled: false (default true). A disabled entry renders nothing, but is still validated
 # and listed in NOTES.txt; disabling a rule disables everything under it. Everything a user
 # might override is a map, so it merges across values files.
+#
+# Keys a profile may set (allowSameNamespace, allowDNS, meshMember, mtls.mode) have no live
+# default here, only a commented one: their defaults are applied in the chart, beneath any
+# profile, so the chart can tell a value you set from a default. Set them as usual.
+
+# -- Built-in profiles: chart-defined layers of values that make a known component's namespace
+#    work out of the box (exceptions, rules, sources, destinations, meshMember). Listing a
+#    profile turns it on; enabled: false keeps it listed but off. Your own values always win
+#    over a profile's, and anything a profile adds can be switched off with enabled: false.
+#    Objects from a profile carry the posture.dev/profile annotation.
+#      istio-system   Istio's control plane (istiod, ztunnel). Settings: apiServerCidrs
+#                     (required: where the API server calls istiod's webhooks from).
+#      istio-ingress  the ingress gateway's namespace (ingress-gateway). Settings: ports
+#                     (listener ports, default 443 and 80), clientCidrs (default the private
+#                     ranges). It reaches meshed backends on 15008 only; a backend outside the
+#                     mesh needs its own egress rule.
+#      istio-egress   the egress waypoint's namespace (egress-gateway). Settings: ports (default
+#                     443 and 80); it may reach any address on them, limited by boundary's host
+#                     list at the waypoint.
+#    All three set meshMember: false. Two profiles that set the same value differently fail.
+profiles: {}
+#  istio-system:
+#    settings:
+#      apiServerCidrs: [10.0.0.0/24]
 
 # -- The service mesh in use. Changes what is rendered alongside the NetworkPolicies.
 #    none:  NetworkPolicies only.
 #    istio: Istio ambient mode (L4). NetworkPolicies also allow TCP 15008 (HBONE) for every
 #           in-cluster peer, plus kubelet probes from 169.254.7.127/32.
 mesh: none
+
+# -- Whether this namespace's pods are in the mesh data plane (default true). false for the
+#    mesh's own components (control plane, gateways, waypoints): no AuthorizationPolicies,
+#    PeerAuthentications, or ambient-probe NetworkPolicy, only NetworkPolicies (still allowing
+#    15008 to in-cluster peers) and exceptions. Set by the istio-* profiles.
+#    In istio-system, Istio's root namespace, namespace-wide authorization and mTLS objects
+#    would apply to the whole mesh, so mesh: istio there fails unless meshMember is false (or
+#    authorization is off and mtls.mode is inherit). A custom root namespace isn't detected.
+# meshMember: true
 
 # -- The mesh trust domain, used to build workload identities.
 trustDomain: cluster.local
@@ -69,7 +102,7 @@ authorization:
 #    Under STRICT, a cidrs source (outside the cluster, so never mTLS) must target excluded
 #    ports, or the render fails.
 mtls:
-  mode: STRICT
+  # mode: STRICT
   exclusions: {}
 #    grafana: [9090]
 #    renderer: { selector: instance, ports: [8081] }
@@ -77,11 +110,11 @@ mtls:
 
 # -- Allow all traffic between pods in this namespace, on every port.
 #    Renders allow-same-namespace.
-allowSameNamespace: true
+# allowSameNamespace: true
 
 # -- Allow egress from every pod to the "dns" destination (kube-dns, 53/UDP and 53/TCP).
 #    Renders allow-egress-from-all-to-dns.
-allowDNS: true
+# allowDNS: true
 
 # -- Render posture-exceptions, the PolicyExceptions object (policy.posture.dev/v1alpha1) the
 #    cluster's admission policies read as parameters (paramRef), even when exceptions is

@@ -77,9 +77,9 @@ install_cni() {
 }
 
 # Istio ambient, under the policy chart (installed first, see install_policy_chart): istiod and
-# ztunnel in istio-system, whose posture-exceptions install_platform_exceptions has already
-# rendered; istio-cni in kube-system (required on GKE, and Istio's preferred alternative to
-# istio-system), which the policies never evaluate.
+# ztunnel in istio-system, whose posture (profile istio-system) install_platform_posture has
+# already rendered; istio-cni in kube-system (required on GKE, and Istio's preferred
+# alternative to istio-system), which the policies never evaluate.
 install_istio() {
   log "installing Istio ${ISTIO_VERSION} (ambient)"
   quiet "$HELM" repo add istio https://blob.istio.io/istio-release/charts --force-update
@@ -435,13 +435,35 @@ uninstall_policy_chart() {
   info "policy chart uninstalled (its CRD is kept)"
 }
 
-# install_platform_exceptions: istio-system's posture-exceptions, from
-# test/e2e/values/istio-system.yaml, rendered by posture itself before Istio is installed.
-install_platform_exceptions() {
+# k3d_network_cidr: the IPv4 subnet of the cluster's Docker network. The API server runs in the
+# k3d server container, so its calls to istiod's webhooks come from there.
+k3d_network_cidr() {
+  local subnet
+  for subnet in $(docker network inspect "k3d-${CLUSTER}" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}'); do
+    if [[ $subnet == *.* ]]; then printf '%s' "$subnet"; return 0; fi
+  done
+  die "no IPv4 subnet on Docker network k3d-${CLUSTER}"
+}
+
+# install_platform_posture: posture in istio-system with the istio-system profile
+# (test/e2e/values/istio-system.yaml), before Istio is installed, so istiod and ztunnel are
+# admitted (exceptions) and run behind its NetworkPolicies. mesh: none, since Istio's CRDs don't
+# exist yet; upgrade_platform_posture switches it to the run's mesh afterwards.
+install_platform_posture() {
   "$KUBECTL" create namespace istio-system >/dev/null
   quiet "$HELM" install posture "$ROOT/charts/posture" -n istio-system \
-    -f "$HERE/values/exceptions-only.yaml" -f "$HERE/values/istio-system.yaml" --wait
-  info "posture-exceptions installed in istio-system (test/e2e/values/istio-system.yaml)"
+    -f "$HERE/values/istio-system.yaml" \
+    --set-json "profiles.istio-system.settings.apiServerCidrs=[\"$(k3d_network_cidr)\"]" --wait
+  info "posture installed in istio-system (profile istio-system, mesh: none)"
+}
+
+# upgrade_platform_posture: the same release with mesh set to the run's mesh, as a real install
+# would do once the mesh exists. meshMember is false there, so nothing mesh-wide is rendered.
+upgrade_platform_posture() {
+  quiet "$HELM" upgrade posture "$ROOT/charts/posture" -n istio-system --reset-values \
+    -f "$HERE/values/istio-system.yaml" --set "mesh=${MESH}" \
+    --set-json "profiles.istio-system.settings.apiServerCidrs=[\"$(k3d_network_cidr)\"]" --wait
+  info "posture in istio-system upgraded to mesh: ${MESH}"
 }
 
 # posture_first <namespace>: posture as the namespace's first release, rendering only an empty

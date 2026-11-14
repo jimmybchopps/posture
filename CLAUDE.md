@@ -40,21 +40,23 @@ The build order is in `docs/PLAN.md`. Work through it phase by phase.
   from map keys (see "Naming"), so names say what they allow and adding or removing one rule
   never renames another object.
 - **Every generated object says why it exists**: annotation `posture.dev/rule` with the key
-  path it came from (`ingress.grafana`, `allowDNS`, `networkPolicy.ingress`, ...).
+  path it came from (`ingress.grafana`, `allowDNS`, `networkPolicy.ingress`, ...), plus
+  `posture.dev/profile` when a profile set it.
 - **No Neutron Star vocabulary.** The words "bundle" and "package" never appear in the chart.
   Neutron Star fills these values from its plan, but the chart must be useful on its own.
 
 ## Values contract
 
 ```yaml
-profiles:                       # built-in profiles (see "Profiles"); applied under these values
-  istio-system:
-    enabled: true
+profiles:                       # built-in profiles (see "Profiles"); applied under these values;
+  istio-system:                 # listing one turns it on, enabled: false keeps it listed but off
     settings:
       apiServerCidrs: [10.0.0.0/24]
 
 mesh: none                      # none | istio | linkerd | cilium   (istio first; others later)
 trustDomain: cluster.local      # used to build mesh identities
+meshMember: true                # false: this namespace's pods aren't in the mesh data plane
+                                # (control plane, gateways, waypoints): no mesh objects
 
 networkPolicy: { ingress: true, egress: true } # false for a direction = no NetworkPolicies
                                                # for it at all (troubleshooting only)
@@ -308,8 +310,33 @@ settings only the site knows.
   `posture.dev/rule`; NOTES.txt lists enabled profiles, their settings, and any profile entries
   the user disabled.
 - **Mesh profiles render before the mesh exists.** `istio-system`'s posture is installed before
-  Istio (with `mesh: none`), so the profile must render correctly with `mesh: none` and pick up
-  the mesh objects on the upgrade after Istio is installed.
+  Istio (with `mesh: none`) and upgraded to `mesh: istio` afterwards, so a profile must render
+  correctly under both.
+- **Defaults of keys a profile may set aren't in `values.yaml`** (`allowSameNamespace`,
+  `allowDNS`, `meshMember`, `mtls.mode`; shown there commented): Helm merges `values.yaml` into
+  `.Values` before any template runs, so a live default would be indistinguishable from a
+  user's value and would always beat the profile. `posture.defaults` applies them beneath the
+  profiles.
+- **The schema checks shapes, the model checks completeness.** The schema sees only the user's
+  values, before profiles are layered in, so it doesn't require `ports`, `kind`, `policies`,
+  or `from`/`sources` (`to`/`destinations`): a user writes `{ enabled: false }` alone to switch
+  off a profile's entry. The model requires them after layering, with the usual
+  `posture: <path>: ...` failures, for disabled entries too.
+- **`meshMember: false`** (all three Istio profiles): the namespace's pods are the mesh's own
+  components, not workloads in it, so no AuthorizationPolicy, PeerAuthentication, or
+  ambient-probe NetworkPolicy is rendered. NetworkPolicies still add 15008 to in-cluster peers
+  (gateways reach meshed backends over HBONE); `mtls.exclusions` fail. In `istio-system`,
+  Istio's root namespace, namespace-wide authorization and mTLS objects would apply to the whole
+  mesh, so `mesh: istio` there fails unless `meshMember` is false or both authorization is off
+  and `mtls.mode` is inherit. A custom root namespace (`meshConfig.rootNamespace`) isn't
+  detected.
+- **What each profile renders** (`templates/_profiles.tpl`):
+
+  | Profile | Rules | Exceptions |
+  |---|---|---|
+  | `istio-system` | istiod: 15012 from every namespace (xDS, CA), 15017 from `apiServerCidrs` (webhooks), 15014 from `monitoring`, egress to `kube-api`; ztunnel: 15020 from `monitoring` | istiod `restrict-seccomp`; ztunnel the six it needs (privilege escalation, capabilities, root, hostPath twice, seccomp) |
+  | `istio-ingress` | every pod: the `ports` from `clientCidrs`; egress to every namespace on 15008 (HBONE to meshed backends; a backend outside the mesh needs its own rule) and to istiod on 15012 | none (`boundary` makes the gateway compliant) |
+  | `istio-egress` | every pod: 15008 from every namespace; egress to `0.0.0.0/0` on the `ports` (`boundary`'s host list at the waypoint is the limit) and to istiod on 15012 | none |
 
 ## Egress to hostnames (`egress.allowedHosts`, Istio ambient)
 
@@ -379,7 +406,8 @@ STRICT, and STRICT coverage of `cidrs` sources (which counts only enabled exclus
 
 ## Rendering rules (authorization, Istio ambient)
 
-Rendered when `mesh: istio` and `authorization.enabled`, independently of `networkPolicy`.
+Rendered when `mesh: istio`, `authorization.enabled`, and `meshMember`, independently of
+`networkPolicy`.
 Only `ingress` produces authorization policies: they're enforced at the destination, so
 `egress` stays NetworkPolicy-only (under ambient, an egress port limit to a meshed peer holds
 only where the destination's own authorization enforces it).
@@ -409,7 +437,7 @@ only where the destination's own authorization enforces it).
 
 ## Rendering rules (mTLS, Istio ambient)
 
-Rendered when `mesh: istio`; nothing for `mode: inherit`.
+Rendered when `mesh: istio` and `meshMember`; nothing for `mode: inherit`.
 
 - `mtls-<mode>` (`mtls-strict`, `mtls-permissive`): the namespace PeerAuthentication.
 - Per exclusion (STRICT only), `allow-plaintext-to-<workload>`: a PeerAuthentication selecting
@@ -501,6 +529,7 @@ charts/posture/
   templates/
     _helpers.tpl          the naming convention (posture.name), labels, collision checks
     _presets.tpl          predefined sources and destinations
+    _profiles.tpl         built-in profiles, their defaults, and the layering (posture.values)
     _model.tpl            values -> normalized model (selectors, peers, ports, presets merged)
     networkpolicy/        default-deny, same-namespace, ambient-probes, rules (every model
                           rule, allowDNS included), _networkpolicy.tpl (peer and port helpers)
@@ -556,9 +585,11 @@ PolicyExceptions CRD. How it gets there depends on the mesh:
 - `MESH=none`: run.sh applies the CRD; only the `exceptions` scenario installs the policy
   chart, and uninstalls it in its teardown.
 - Any mesh: the policy chart goes in after Calico and before the mesh, as on a real cluster,
-  and stays for the whole run. Then come istio-system's exceptions, rendered by posture
-  itself from `test/e2e/values/istio-system.yaml` (add an entry there when a mesh workload is
-  refused), then Istio, with istio-cni in `kube-system`, which the policies never evaluate.
+  and stays for the whole run. Then comes posture in istio-system with the `istio-system`
+  profile (`test/e2e/values/istio-system.yaml`; `apiServerCidrs` is the k3d Docker network), so
+  istiod and ztunnel are admitted and run behind its NetworkPolicies; then Istio, with
+  istio-cni in `kube-system`, which the policies never evaluate; then that posture release
+  upgraded to `mesh: istio`. A refused or unreachable Istio component is a fix to the profile.
   Pods are denied in a namespace without `posture-exceptions`, so each scenario namespace gets
   a posture release that renders only that object (`test/e2e/values/exceptions-only.yaml`)
   when it's created, as posture is the first release in any namespace; the scenario's
@@ -577,6 +608,6 @@ qualified, because `restrict-image-registries` matches plain prefixes
 | 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
 | 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
-| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a, 5b done |
+| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a, 5b, 5c done (5c e2e not yet run) |
 | 6 | Linkerd renderer | not started |
 | 7 | Cilium renderer | not started |

@@ -1,0 +1,7 @@
+# Values for the "egress-gateway" namespace (the boundary chart's egress waypoint) under Istio
+# ambient, with the profile's defaults: HBONE on 15008 from every namespace; out on 443 and 80
+# to any address, limited by boundary's host list at the waypoint; istiod for xDS.
+mesh: istio
+
+profiles:
+  istio-egress: {}

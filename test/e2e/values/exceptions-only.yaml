@@ -2,6 +2,5 @@
 # NetworkPolicies, mesh none. Installed in every namespace when it's created under the policy
 # chart, as posture is the first release in any namespace, so pods there are admitted before
 # the scenario's own posture values are applied (install_posture upgrades this release).
-# Also the base for test/e2e/values/istio-system.yaml.
 mesh: none
 networkPolicy: { ingress: false, egress: false }

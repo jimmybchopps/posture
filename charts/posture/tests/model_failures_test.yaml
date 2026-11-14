@@ -277,3 +277,80 @@ tests:
       ingress.grafana.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000], enabled: false }
     asserts:
       - notFailedTemplate: {}
+
+  # Profiles (phase 5c): completeness is checked after layering; the root-namespace guard
+  - it: istio-system needs apiServerCidrs
+    release:
+      namespace: istio-system
+    set:
+      profiles.istio-system: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: profiles.istio-system.settings.apiServerCidrs: required"
+
+  - it: mesh istio in istio-system without the profile fails (mesh-wide objects)
+    release:
+      namespace: istio-system
+    set:
+      mesh: istio
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: istio-system is Istio's root namespace"
+
+  - it: the guard also fires with only mTLS left on
+    release:
+      namespace: istio-system
+    set:
+      mesh: istio
+      authorization.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: istio-system is Istio's root namespace"
+
+  - it: a user entry without ports, and no profile to complete it, fails
+    release:
+      namespace: grafana
+    set:
+      ingress.grafana.from.renderer: { enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana.from.renderer: ports are required"
+
+  - it: a user rule with neither from nor sources fails
+    release:
+      namespace: grafana
+    set:
+      ingress.grafana: { selector: app }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana: needs from or sources"
+
+  - it: adding namespace to a profile's cidrs entry fails
+    release:
+      namespace: ingress-gateway
+    set:
+      profiles.istio-ingress: {}
+      ingress.any.from.clients: { namespace: x }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.any.from.clients: cidrs can't be combined with namespace"
+
+  - it: an exception without kind fails
+    release:
+      namespace: grafana
+    set:
+      exceptions.app.policies.disallow-host-path: { reason: x }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: exceptions.app.policies.disallow-host-path: kind is required"
+
+  - it: exclusions fail with meshMember false
+    release:
+      namespace: grafana
+    set:
+      mesh: istio
+      meshMember: false
+      mtls.exclusions.api: [8081]
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: mtls.exclusions.api: exclusions need this namespace in the mesh data plane; meshMember is false"

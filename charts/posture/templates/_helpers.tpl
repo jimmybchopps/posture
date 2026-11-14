@@ -9,11 +9,19 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
 {{/*
-The annotation saying why an object exists: the values key path it came from.
+The annotations saying why an object exists: the values key path it came from, and the
+profile that set it, if any (a comma-separated list for posture-exceptions).
 Usage: include "posture.annotations" "ingress.grafana"
+       include "posture.annotations" (dict "rule" "ingress.istiod.from.any" "profile" "istio-system")
 */}}
 {{- define "posture.annotations" -}}
-posture.dev/rule: {{ . | quote }}
+{{- $rule := . -}}
+{{- $profile := "" -}}
+{{- if kindIs "map" . -}}{{- $rule = .rule -}}{{- $profile = .profile | default "" -}}{{- end -}}
+posture.dev/rule: {{ $rule | quote }}
+{{- with $profile }}
+posture.dev/profile: {{ . | quote }}
+{{- end -}}
 {{- end -}}
 
 {{/*

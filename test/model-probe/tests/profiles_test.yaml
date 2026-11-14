@@ -1,0 +1,141 @@
+suite: model profiles (layering)
+templates:
+  - templates/merge.yaml
+  - templates/model.yaml
+release:
+  namespace: team
+tests:
+  # posture.deepMerge: maps merge, lists and scalars replace, decided by presence
+  - it: user false, [], and 0 win over a profile's values
+    template: templates/merge.yaml
+    set:
+      mergeTest:
+        base: { allowSameNamespace: true, ports: [443, 80], count: 3, keep: x }
+        over: { allowSameNamespace: false, ports: [], count: 0 }
+    asserts:
+      - equal: { path: result, value: { allowSameNamespace: false, ports: [], count: 0, keep: x } }
+
+  - it: maps merge recursively; lists replace wholesale
+    template: templates/merge.yaml
+    set:
+      mergeTest:
+        base: { ingress: { istiod: { from: { any: { namespace: any, ports: [15012] } } } } }
+        over: { ingress: { istiod: { from: { any: { ports: [15012, 15013] }, extra: { ports: [1] } } } } }
+    asserts:
+      - equal:
+          path: result
+          value:
+            ingress: { istiod: { from: { any: { namespace: any, ports: [15012, 15013] }, extra: { ports: [1] } } } }
+
+  - it: a nil value counts as absent
+    template: templates/merge.yaml
+    set:
+      mergeTest:
+        base: { allowDNS: true }
+        over: { allowDNS: null }
+    asserts:
+      - equal: { path: result, value: { allowDNS: true } }
+
+  # posture.layerProfiles: conflicts and forbidden keys
+  - it: two profiles setting the same value the same way is fine, and origins name the first
+    template: templates/merge.yaml
+    set:
+      layerTest:
+        - { name: a, values: { allowDNS: true, ingress: { x: { from: { y: { ports: [1] } } } } } }
+        - { name: b, values: { allowDNS: true, egress: { x: { destinations: { dns: {} } } } } }
+    asserts:
+      - equal: { path: layer.allowDNS, value: true }
+      - equal: { path: 'origins["allowDNS"]', value: a }
+      - equal: { path: 'origins["ingress.x.from.y"]', value: a }
+      - equal: { path: 'origins["egress.x.destinations.dns"]', value: b }
+
+  - it: two profiles setting the same value differently fail, naming both
+    template: templates/merge.yaml
+    set:
+      layerTest:
+        - { name: a, values: { mtls: { mode: STRICT } } }
+        - { name: b, values: { mtls: { mode: inherit } } }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: profiles.a and profiles.b both set mtls.mode \("STRICT" vs "inherit"\)'
+
+  - it: a map against a scalar is a conflict
+    template: templates/merge.yaml
+    set:
+      layerTest:
+        - { name: a, values: { ingress: { x: true } } }
+        - { name: b, values: { ingress: { x: { from: {} } } } }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: profiles.a and profiles.b both set ingress.x"
+
+  - it: a profile setting a forbidden key fails (a chart bug)
+    template: templates/merge.yaml
+    set:
+      layerTest:
+        - { name: a, values: { mesh: istio } }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: internal: profile a sets mesh, which profiles may not set"
+
+  # posture.values, through the model
+  - it: no profiles by default, and meshMember is true
+    template: templates/model.yaml
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: profiles, value: [] }
+      - equal: { path: meshMember, value: true }
+
+  - it: lists enabled profiles with resolved settings, and listed-but-off ones
+    template: templates/model.yaml
+    set:
+      posture.profiles:
+        istio-system: { settings: { apiServerCidrs: [10.0.0.0/24] } }
+        istio-ingress: { settings: { ports: [8443] } }
+        istio-egress: { enabled: false }
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal:
+          path: profiles
+          value:
+            - { name: istio-egress, enabled: false }
+            - { name: istio-ingress, enabled: true, settings: { ports: [8443], clientCidrs: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16] } }
+            - { name: istio-system, enabled: true, settings: { apiServerCidrs: [10.0.0.0/24] } }
+      - equal: { path: meshMember, value: false }
+
+  - it: rules from a profile carry its name; the user's own rules don't
+    template: templates/model.yaml
+    set:
+      posture.profiles.istio-system.settings.apiServerCidrs: [10.0.0.0/24]
+      posture.ingress.istiod.from.extra: { ports: [9999] }
+    documentSelector: { path: name, value: allow-ingress-from-all-namespaces-to-istiod }
+    asserts:
+      - equal: { path: profile, value: istio-system }
+
+  - it: the user's own entry under a profile's rule has no profile
+    template: templates/model.yaml
+    set:
+      posture.profiles.istio-system.settings.apiServerCidrs: [10.0.0.0/24]
+      posture.ingress.istiod.from.extra: { ports: [9999] }
+    documentSelector: { path: name, value: allow-ingress-from-extra-to-istiod }
+    asserts:
+      - equal: { path: profile, value: "" }
+
+  - it: a profile's exceptions name it in exceptions.profiles
+    template: templates/model.yaml
+    set:
+      posture.profiles.istio-system.settings.apiServerCidrs: [10.0.0.0/24]
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: exceptions.profiles, value: [istio-system] }
+
+  - it: the user's values win, and override a profile entry field by field
+    template: templates/model.yaml
+    set:
+      posture.profiles.istio-system.settings.apiServerCidrs: [10.0.0.0/24]
+      posture.meshMember: true
+      posture.ingress.istiod.from.any.ports: [15012, 15010]
+    documentSelector: { path: name, value: allow-ingress-from-all-namespaces-to-istiod }
+    asserts:
+      - equal: { path: ports, value: [{ port: 15012, protocol: TCP }, { port: 15010, protocol: TCP }] }
+      - equal: { path: peer.namespace.scope, value: all }

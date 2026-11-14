@@ -1,35 +1,11 @@
-# posture in istio-system under MESH=istio, installed before Istio itself (after the policy
-# chart), on top of exceptions-only.yaml: it renders only posture-exceptions, so istiod and
-# ztunnel are admitted against the baseline (no NetworkPolicies, and mesh none, since the
-# mesh's CRDs don't exist yet). istio-cni runs in kube-system, which the policies never
-# evaluate, so it needs nothing here.
+# posture in istio-system under MESH=istio: the istio-system profile (istiod's and ztunnel's
+# exceptions and traffic, meshMember: false). Installed before Istio, after the policy chart, with
+# mesh: none, and upgraded with mesh: istio once Istio is in (install_platform_posture and
+# upgrade_platform_posture in test/e2e/lib.sh). apiServerCidrs is set at run time to the k3d
+# Docker network, where the API server's webhook calls come from.
 #
-# A missing entry shows up as a FailedCreate event naming the policy (run.sh prints them when
-# the Istio install fails); add it below.
-
-exceptions:
-  istiod:
-    policies:
-      restrict-seccomp:
-        kind: ValidatingAdmissionPolicy
-        reason: "the istiod chart sets no seccompProfile"
-  ztunnel:
-    policies:
-      disallow-privilege-escalation:
-        kind: ValidatingAdmissionPolicy
-        reason: "ztunnel needs allowPrivilegeEscalation for its added capabilities"
-      require-drop-all-capabilities:
-        kind: ValidatingAdmissionPolicy
-        reason: "ztunnel adds NET_ADMIN, SYS_ADMIN, and NET_RAW to redirect pod traffic"
-      require-run-as-non-root:
-        kind: ValidatingAdmissionPolicy
-        reason: "ztunnel runs as root to enter pod network namespaces"
-      disallow-host-path:
-        kind: ValidatingAdmissionPolicy
-        reason: "ztunnel shares the /var/run/ztunnel socket with istio-cni"
-      restrict-volume-types:
-        kind: ValidatingAdmissionPolicy
-        reason: "ztunnel shares the /var/run/ztunnel socket with istio-cni"
-      restrict-seccomp:
-        kind: ValidatingAdmissionPolicy
-        reason: "the ztunnel chart sets no seccompProfile"
+# A missing exception shows up as a FailedCreate event naming the policy (run.sh prints them
+# when the Istio install fails); a missing rule, as istiod or ztunnel failing to become ready.
+# Either is a fix to the profile (charts/posture/templates/_profiles.tpl), not to this file.
+profiles:
+  istio-system: {}

@@ -483,25 +483,58 @@ Decisions made in 5a:
 
 ### 5c. Profiles
 
-- [ ] `profiles.<name>.{enabled, settings}` in the schema, one entry per built-in profile.
-- [ ] `templates/_profiles.tpl` and the `posture.values` helper (defaults, then profiles, then
+- [x] `profiles.<name>.{enabled, settings}` in the schema, one entry per built-in profile.
+- [x] `templates/_profiles.tpl` and the `posture.values` helper (defaults, then profiles, then
       user values) with the custom deep merge; the model reads it instead of `.Values`.
-- [ ] Failures: a profile setting a forbidden key (internal check), two profiles disagreeing on
+- [x] Failures: a profile setting a forbidden key (internal check), two profiles disagreeing on
       a value, a required setting missing.
-- [ ] `posture.dev/profile` annotation; NOTES.txt lists profiles, settings, and disabled profile
+- [x] `posture.dev/profile` annotation; NOTES.txt lists profiles, settings, and disabled profile
       entries.
-- [ ] `istio-system`: start from `test/e2e/values/istio-system.yaml` (istiod and ztunnel
-      exceptions) and add istiod's traffic: 15012 from every namespace, 15017 from
-      `apiServerCidrs`, 15014 from the `monitoring` source, egress to `kube-api`. Renders with
-      `mesh: none` (installed before Istio) and with `mesh: istio`. The e2e harness switches to
-      it.
-- [ ] `istio-ingress`: ingress on the `ports` setting from `clientCidrs`; egress to every pod in
+- [x] `meshMember` (default true): false renders no AuthorizationPolicy, PeerAuthentication, or
+      ambient-probe NetworkPolicy; the root-namespace guard for `istio-system`.
+- [x] `istio-system`: the istiod and ztunnel exceptions from `test/e2e/values/istio-system.yaml`,
+      and istiod's traffic: 15012 from every namespace, 15017 from `apiServerCidrs`, 15014 from
+      the `monitoring` source, egress to `kube-api`; ztunnel's metrics (15020) from `monitoring`.
+      `meshMember: false`. Renders with `mesh: none` (installed before Istio) and with
+      `mesh: istio`. The e2e harness switches to it.
+- [x] `istio-ingress`: ingress on the `ports` setting from `clientCidrs`; egress to every pod in
       every namespace on 15008 only (meshed backends receive gateway traffic as HBONE, so the
-      gateway never needs each application's ports). No exceptions: `boundary` makes the
-      gateway pods compliant.
-- [ ] `istio-egress`: ingress on 15008 from every namespace; egress outside the cluster on the
-      `ports` setting. No exceptions.
-- [ ] Unit tests per profile and per failure; snapshots of each profile's output.
+      gateway never needs each application's ports), and to istiod on 15012 (xDS).
+      `meshMember: false`. No exceptions: `boundary` makes the gateway pods compliant.
+- [x] `istio-egress`: ingress on 15008 from every namespace; egress outside the cluster
+      (`0.0.0.0/0`) on the `ports` setting, and to istiod on 15012. `meshMember: false`. No
+      exceptions.
+- [x] Unit tests per profile and per failure; snapshots of each profile's output.
+- [ ] e2e under `MESH=istio` with istio-system behind the profile's NetworkPolicies.
+
+Decisions made in 5c:
+
+- Keys a profile may set (`allowSameNamespace`, `allowDNS`, `meshMember`, `mtls.mode`) have no
+  live default in `values.yaml`, only a commented one; `posture.defaults` applies them beneath
+  the profiles. Helm merges `values.yaml` into `.Values` before templates run, so a live default
+  can't be told apart from a user's value, and would always beat the profile. Existing output
+  is unchanged (every earlier snapshot is byte-identical).
+- `meshMember` (new): istiod, ztunnel, gateways, and waypoints are the mesh, not workloads in
+  it, and in `istio-system` (Istio's root namespace) a selector-less AuthorizationPolicy or
+  PeerAuthentication applies mesh-wide: posture's `deny-all-ingress` there would deny every
+  meshed workload. All three profiles set `meshMember: false`; `mesh: istio` in a namespace
+  named `istio-system` fails unless `meshMember` is false, or authorization is off and
+  `mtls.mode` is inherit. A custom root namespace isn't detected (documented).
+- The schema checks shapes, the model checks completeness: `ports`, `kind`, `policies`, and
+  `from`/`sources` (`to`/`destinations`) are no longer schema-required, because the schema only
+  sees the user's values before layering, and `{ enabled: false }` alone must be able to switch
+  off a profile's entry. The model requires them after layering, for disabled entries too, and
+  also rejects `cidrs` combined with `namespace`/`selector`/`serviceAccount` in one entry (the
+  schema used to, through `oneOf`).
+- Listing a profile turns it on (`enabled` default true, as everywhere since 5a).
+- Gateway profiles egress to istiod on 15012: gateways and waypoints get their configuration by
+  xDS (the plan's text left this out).
+- Profile layering is unit-tested directly through a test-only probe template
+  (`test/model-probe/templates/merge.yaml`), so conflicts and forbidden keys are covered
+  without a built-in profile that triggers them.
+- e2e: istio-system now runs behind the profile's NetworkPolicies (previously exceptions only),
+  with `apiServerCidrs` set to the k3d Docker network at run time, and the release is upgraded
+  to `mesh: istio` after Istio is installed. The gateway profiles' e2e is 5e's, with `boundary`.
 
 ### 5d. Egress to hostnames
 

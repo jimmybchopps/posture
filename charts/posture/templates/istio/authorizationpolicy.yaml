@@ -1,20 +1,21 @@
 {{- /*
-Istio ambient AuthorizationPolicies, when mesh: istio and authorization.enabled, whatever
-networkPolicy says (the two layers are independent):
+Istio ambient AuthorizationPolicies, when mesh: istio, authorization.enabled, and meshMember
+(this namespace's pods are in the mesh data plane), whatever networkPolicy says (the two layers
+are independent):
   deny-all-ingress      allow-nothing for every workload in the namespace
   allow-same-namespace  every port, from this namespace (allowSameNamespace)
   one ALLOW per ingress model rule, named like the NetworkPolicy from the same rule
 Egress rules render nothing: authorization is enforced at the destination.
 */ -}}
 {{- $model := include "posture.model" . | fromJson -}}
-{{- if and (eq $model.mesh "istio") $model.authorization.enabled -}}
+{{- if and (eq $model.mesh "istio") $model.authorization.enabled $model.meshMember -}}
 {{- with $model.fixed.denyIngress }}
 ---
 {{ include "posture.istio.object" (dict "root" $ "name" .name "rule" "authorization.enabled" "spec" (dict)) }}
 {{- end -}}
 {{- with $model.fixed.sameNamespace }}
 ---
-{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "spec" (dict
+{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "profile" .profile "spec" (dict
   "action" "ALLOW"
   "rules" (list (dict "from" (list (dict "source" (dict "namespaces" (list $model.namespace)))))))) }}
 {{- end -}}
@@ -27,7 +28,7 @@ its real port. Meshed clients still need the identity rules below.
   {{- $ports := list -}}
   {{- range .ports -}}{{- $ports = append $ports (toString (int .)) -}}{{- end }}
 ---
-{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "spec" (dict
+{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "profile" .profile "spec" (dict
   "action" "ALLOW"
   "selector" (dict "matchLabels" .labels)
   "rules" (list (dict
@@ -36,7 +37,7 @@ its real port. Meshed clients still need the identity rules below.
 {{- end -}}
 {{- with $model.fixed.plaintextAll }}
 ---
-{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "spec" (dict
+{{ include "posture.istio.object" (dict "root" $ "name" .name "rule" .rule "profile" .profile "spec" (dict
   "action" "ALLOW"
   "rules" (list (dict "from" (list (dict "source" (dict "notPrincipals" (list "*")))))))) }}
 {{- end -}}
@@ -56,7 +57,7 @@ its real port. Meshed clients still need the identity rules below.
       {{- $_ := set $spec "selector" (dict "matchLabels" $rule.target.labels) -}}
     {{- end }}
 ---
-{{ include "posture.istio.object" (dict "root" $ "name" $rule.name "rule" $rule.rule "spec" $spec) }}
+{{ include "posture.istio.object" (dict "root" $ "name" $rule.name "rule" $rule.rule "profile" $rule.profile "spec" $spec) }}
   {{- end -}}
 {{- end -}}
 {{- end -}}

@@ -4,6 +4,6 @@
 {{- if get $model.networkPolicy $direction -}}
 {{- $fixed := get $model.fixed (ternary "denyIngress" "denyEgress" (eq $direction "ingress")) }}
 ---
-{{ include "posture.np.object" (dict "root" $ "name" $fixed.name "rule" $fixed.rule "spec" (dict "podSelector" (dict) "policyTypes" (list (title $direction)))) }}
+{{ include "posture.np.object" (dict "root" $ "name" $fixed.name "rule" $fixed.rule "profile" $fixed.profile "spec" (dict "podSelector" (dict) "policyTypes" (list (title $direction)))) }}
 {{- end -}}
 {{- end -}}

@@ -5,7 +5,7 @@ values. Helpers that build data "return" by setting keys on an `out` dict, like 
 
 {{/*
 A complete NetworkPolicy.
-Input: dict "root" $ "name" <name> "rule" <values path> "spec" <dict>
+Input: dict "root" $ "name" <name> "rule" <values path> "spec" <dict> ["profile" <name>]
 */}}
 {{- define "posture.np.object" -}}
 apiVersion: networking.k8s.io/v1
@@ -16,7 +16,7 @@ metadata:
   labels:
     {{- include "posture.labels" .root | nindent 4 }}
   annotations:
-    {{- include "posture.annotations" .rule | nindent 4 }}
+    {{- include "posture.annotations" (dict "rule" .rule "profile" .profile) | nindent 4 }}
 spec:
   {{- toYaml .spec | nindent 2 }}
 {{- end -}}

@@ -41,3 +41,15 @@ tests:
     values: [../../../examples/exceptions.yaml]
     asserts:
       - matchSnapshot: {}
+  - it: profile-istio-system
+    values: [../../../examples/profile-istio-system.yaml]
+    asserts:
+      - matchSnapshot: {}
+  - it: profile-istio-ingress
+    values: [../../../examples/profile-istio-ingress.yaml]
+    asserts:
+      - matchSnapshot: {}
+  - it: profile-istio-egress
+    values: [../../../examples/profile-istio-egress.yaml]
+    asserts:
+      - matchSnapshot: {}

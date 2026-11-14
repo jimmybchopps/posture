@@ -13,7 +13,7 @@ tests:
       - equal: { path: networkPolicy, value: { ingress: true, egress: true } }
       - equal: { path: authorization, value: { enabled: true } }
       - equal: { path: mtls, value: { mode: STRICT, exclusions: [] } }
-      - equal: { path: exceptions, value: { enabled: true, name: posture-exceptions, policies: [], expired: [] } }
+      - equal: { path: exceptions, value: { enabled: true, name: posture-exceptions, policies: [], expired: [], profiles: [] } }
       - equal: { path: allowSameNamespace, value: true }
 
   - it: carries overridden toggles
@@ -108,9 +108,9 @@ tests:
       - equal:
           path: fixed
           value:
-            denyIngress: { name: deny-all-ingress, rule: networkPolicy.ingress }
-            denyEgress: { name: deny-all-egress, rule: networkPolicy.egress }
-            sameNamespace: { name: allow-same-namespace, rule: allowSameNamespace }
+            denyIngress: { name: deny-all-ingress, rule: networkPolicy.ingress, profile: "" }
+            denyEgress: { name: deny-all-egress, rule: networkPolicy.egress, profile: "" }
+            sameNamespace: { name: allow-same-namespace, rule: allowSameNamespace, profile: "" }
 
   - it: istio adds the ambient probe object
     set:
@@ -119,7 +119,7 @@ tests:
     asserts:
       - equal:
           path: fixed.ambientProbes
-          value: { name: allow-ingress-from-ambient-probes-to-all, rule: mesh }
+          value: { name: allow-ingress-from-ambient-probes-to-all, rule: mesh, profile: "" }
 
   - it: allowSameNamespace false drops its fixed object
     set:
@@ -167,9 +167,9 @@ tests:
           value:
             mode: STRICT
             exclusions:
-              - { key: api, name: allow-plaintext-to-api, rule: mtls.exclusions.api, labels: { app.kubernetes.io/name: api }, ports: [8081] }
-              - { key: web, name: allow-plaintext-to-web, rule: mtls.exclusions.web, labels: { app.kubernetes.io/instance: web }, ports: [9090] }
-      - equal: { path: fixed.mtlsNamespace, value: { name: mtls-strict, rule: mtls.mode } }
+              - { key: api, name: allow-plaintext-to-api, rule: mtls.exclusions.api, profile: "", labels: { app.kubernetes.io/name: api }, ports: [8081] }
+              - { key: web, name: allow-plaintext-to-web, rule: mtls.exclusions.web, profile: "", labels: { app.kubernetes.io/instance: web }, ports: [9090] }
+      - equal: { path: fixed.mtlsNamespace, value: { name: mtls-strict, rule: mtls.mode, profile: "" } }
 
   - it: carries exceptions, inverted, with disabled and expired entries left out
     set:
@@ -195,6 +195,7 @@ tests:
                   - { matchLabels: { app.kubernetes.io/name: prometheus }, reason: reads /proc, expires: "2999-12-31" }
             expired:
               - { rule: exceptions.prometheus.policies.disallow-host-ports, expires: "2000-01-01" }
+            profiles: []
 
   - it: nothing is disabled by default
     documentSelector: { path: name, value: model }
@@ -225,11 +226,11 @@ tests:
       - equal:
           path: disabled
           value:
-            - { rule: ingress.grafana.from.renderer }
-            - { rule: ingress.grafana.sources.monitoring }
-            - { rule: egress.grafana.to.keycloak }
-            - { rule: egress.grafana.destinations.postgres }
-            - { rule: mtls.exclusions.api }
+            - { rule: ingress.grafana.from.renderer, profile: "" }
+            - { rule: ingress.grafana.sources.monitoring, profile: "" }
+            - { rule: egress.grafana.to.keycloak, profile: "" }
+            - { rule: egress.grafana.destinations.postgres, profile: "" }
+            - { rule: mtls.exclusions.api, profile: "" }
         documentIndex: 0
       - equal: { path: mtls.exclusions, value: [] }
         documentIndex: 0

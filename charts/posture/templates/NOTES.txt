@@ -1,5 +1,18 @@
 {{- $model := include "posture.model" . | fromJson -}}
 posture {{ .Chart.Version }} is installed in namespace {{ .Release.Namespace }} (mesh: {{ $model.mesh }}).
+{{- with $model.profiles }}
+
+Profiles (objects they produce carry the posture.dev/profile annotation):
+{{- range . }}
+{{- $settings := .settings | default dict }}
+  - {{ .name }}{{ if not .enabled }} (enabled: false){{ else }}{{ range $i, $k := keys $settings | sortAlpha }}{{ if $i }},{{ else }}:{{ end }} {{ $k }}={{ toJson (get $settings $k) }}{{ end }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if and (eq $model.mesh "istio") (not $model.meshMember) }}
+
+This namespace isn't in the mesh data plane (meshMember: false): NetworkPolicies and
+  exceptions only, no AuthorizationPolicies or PeerAuthentications.
+{{- end }}
 {{- range $direction := list "ingress" "egress" }}
 {{- if not (get $model.networkPolicy $direction) }}
 
@@ -8,8 +21,8 @@ WARNING: NetworkPolicy {{ $direction }} is DISABLED (networkPolicy.{{ $direction
   Troubleshooting only; set it back to true when you're done.
 {{- end }}
 {{- end }}
-{{- $authz := and (eq $model.mesh "istio") $model.authorization.enabled -}}
-{{- if and (eq $model.mesh "istio") (not $model.authorization.enabled) }}
+{{- $authz := and (eq $model.mesh "istio") $model.authorization.enabled $model.meshMember -}}
+{{- if and (eq $model.mesh "istio") $model.meshMember (not $model.authorization.enabled) }}
 
 WARNING: authorization is DISABLED (authorization.enabled: false).
   No AuthorizationPolicy is rendered. Between meshed pods the NetworkPolicies only see HBONE on
@@ -38,7 +51,7 @@ Authorization (Istio ambient): the authorization policies admit in-cluster clien
 identity, so a client in a namespace outside the mesh is refused even where a rule names it,
 except on ports that accept plaintext (see mTLS below).
 {{- end }}
-{{- if eq $model.mesh "istio" }}
+{{- if and (eq $model.mesh "istio") $model.meshMember }}
 {{- if eq $model.mtls.mode "STRICT" }}
 
 mTLS (Istio ambient): STRICT: only mesh clients, with mTLS.
@@ -104,11 +117,11 @@ Policy exceptions (posture-exceptions):
 
 Disabled (enabled: false; validated, not rendered):
 {{- range . }}
-  - {{ .rule }}
+  - {{ .rule }}{{ with .profile }} (profile {{ . }}){{ end }}
 {{- end }}
 {{- end }}
 
 See which objects it created, and the rule each one came from:
 
-  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }}{{ if and (eq $model.mesh "istio") (ne $model.mtls.mode "inherit") }},peerauthentications.security.istio.io{{ end }}{{ if $model.exceptions.enabled }},policyexceptions.policy.posture.dev{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
-    -o custom-columns='NAME:.metadata.name,RULE:.metadata.annotations.posture\.dev/rule'
+  kubectl get networkpolicies{{ if $authz }},authorizationpolicies.security.istio.io{{ end }}{{ if and (eq $model.mesh "istio") $model.meshMember (ne $model.mtls.mode "inherit") }},peerauthentications.security.istio.io{{ end }}{{ if $model.exceptions.enabled }},policyexceptions.policy.posture.dev{{ end }} -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} \
+    -o custom-columns='NAME:.metadata.name,RULE:.metadata.annotations.posture\.dev/rule,PROFILE:.metadata.annotations.posture\.dev/profile'
