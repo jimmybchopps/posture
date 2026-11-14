@@ -55,7 +55,7 @@ Decisions made in phase 0:
       `any` (see the table in CLAUDE.md).
 - [x] Ports: required and non-empty everywhere they appear; numbers or port objects with a
       numeric `port`; `protocol` defaults to TCP. Port names are a schema error.
-- [x] Unknown preset references (`destinations: [postgress]`) `fail` with the list of known
+- [x] Unknown preset references (`destinations: { postgress: {} }`) `fail` with the list of known
       names.
 - [x] Schema: selector enum, port shape, `any` not allowed as a `serviceAccount` or selector
       value, each `from`/`to` entry is either a workload entry or a `cidrs` entry.
@@ -447,14 +447,33 @@ meshes follow in phases 6 (Linkerd) and 7 (Cilium).
 
 ### 5a. Maps and `enabled` everywhere (breaking, before any release)
 
-- [ ] `enabled` (default true) on `ingress.<target>`, `egress.<source>`, every `from`/`to` entry,
+- [x] `enabled` (default true) on `ingress.<target>`, `egress.<source>`, every `from`/`to` entry,
       `mtls.exclusions` objects, and `sources` references (object form
       `{ ports, enabled }`, with the ports list still accepted).
-- [ ] `egress.<source>.destinations` becomes a map (`{ postgres: {}, sso: { enabled: false } }`):
+- [x] `egress.<source>.destinations` becomes a map (`{ postgres: {}, sso: { enabled: false } }`):
       a list would be replaced wholesale when values are layered.
-- [ ] Disabled entries render nothing, are still validated, and don't count toward name
+- [x] Disabled entries render nothing, are still validated, and don't count toward name
       collisions.
-- [ ] Update the schema, model, examples, snapshots, and every doc that shows the list form.
+- [x] Update the schema, model, examples, snapshots, and every doc that shows the list form.
+
+Decisions made in 5a:
+
+- Validation splits in two. Structural checks (schema, ports, selectors, peer shape, unknown
+  source or destination names) run on disabled entries too, so a typo never hides behind
+  `enabled: false`. Checks that depend on the surroundings (a destination's required mesh,
+  an exclusion needing a mesh or STRICT, STRICT coverage of `cidrs` sources) run only on
+  enabled entries: a disabled entry asks for nothing, and profiles (5c) need to carry entries
+  a user's setup can't support until they're switched off.
+- A disabled rule disables everything under it, and its children are still validated.
+- The model lists disabled entries (`disabled: [{ rule }]`), and NOTES.txt shows them under
+  "Disabled (enabled: false; validated, not rendered)", not as a warning: switching something
+  off is a normal choice.
+- `enabled` exists only where a source or destination is used, never on its definition: a
+  definition nothing references renders nothing. The schema rejects it there.
+- No compatibility for the old `destinations` list: nothing has been released, so the schema
+  rejects the list form.
+- e2e: `examples/strict.yaml` carries the reverse pair (api -> web) switched off, so the
+  `strict` scenario's existing deny of that path also shows disabled rules render nothing.
 
 ### 5b. Gateway presets
 

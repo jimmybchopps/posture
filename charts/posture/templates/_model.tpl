@@ -25,6 +25,8 @@ Shape:
     ambientProbes: { name, rule }         # allow-ingress-from-ambient-probes-to-all (istio)
     mtlsNamespace: { name, rule }         # mtls-<mode> (a mesh, mode not inherit)
     plaintextAll:  { name, rule }         # allow-plaintext-to-all (a mesh, mode PERMISSIVE)
+  disabled: [{ rule }]                    # entries with enabled: false (theirs or a parent's),
+                                          # validated but not rendered; rules, then exclusions
   rules:                                  # one per target and peer pair, in values order
     - name: allow-ingress-from-keycloak-to-grafana
       rule: ingress.grafana.from.keycloak # the posture.dev/rule annotation
@@ -42,10 +44,18 @@ Shape:
       ports: [{ port, protocol, endPort? }]
 
 The model is mesh-neutral: labels and namespace scopes, never NetworkPolicy fields. It holds
-every rule whatever networkPolicy says; each renderer decides what it renders.
+every enabled rule whatever networkPolicy says; each renderer decides what it renders.
+
+Disabled entries (enabled: false on a rule, peer, reference, or exclusion) go through every
+structural check (ports, selectors, peer shape, unknown source or destination names), so a
+typo never hides behind enabled: false. Checks that depend on the surroundings (a
+destination's required mesh, an exclusion needing a mesh or STRICT, STRICT coverage of cidrs
+sources) apply only to enabled entries, since a disabled one asks for nothing. Disabled
+entries render nothing and aren't in the collision check.
 
 Object names are unique across fixed and rules (posture.checkCollisions), including rules a
-renderer skips, so turning a direction back on can't introduce a collision.
+renderer skips, so turning a direction back on can't introduce a collision. Disabled entries
+aren't checked: only one of two entries with the same name may be on.
 
 Note: fromJson turns numbers into float64. Renderers must use `int` on port numbers before
 formatting them with printf.
@@ -66,6 +76,14 @@ Label key for a selector short name.
 {{- fail (printf "posture: unknown selector %q; known: app, component, instance, name" .) -}}
 {{- end -}}
 {{- $label -}}
+{{- end -}}
+
+{{/*
+Whether a values entry is on: its enabled key, default true. A non-map entry (a ports list)
+is always on. Outputs "true" or "false"; compare with eq ... "true".
+*/}}
+{{- define "posture.enabled" -}}
+{{- if and (kindIs "map" .) (hasKey . "enabled") -}}{{- ternary "true" "false" (eq (toString .enabled) "true") -}}{{- else -}}true{{- end -}}
 {{- end -}}
 
 {{/*
@@ -206,14 +224,15 @@ out.definitions.
 {{/*
 Look up a source or destination by name, failing with the list of known names.
 Input: dict "kind" source|destination "name" <name> "definitions" <dict> "rule" <path>
-       "mesh" <mesh> "out" <dict>; sets out.definition.
+       "mesh" <mesh> "enabled" <bool> "out" <dict>; sets out.definition. The required-mesh
+       check applies only when enabled.
 */}}
 {{- define "posture.lookupDefinition" -}}
 {{- $def := get .definitions .name -}}
 {{- if not $def -}}
   {{- fail (printf "posture: %s: unknown %s %q; known: %s" .rule .kind .name (keys .definitions | sortAlpha | join ", ")) -}}
 {{- end -}}
-{{- with $def.requiresMesh -}}
+{{- with and .enabled $def.requiresMesh -}}
   {{- if ne .mesh $.mesh -}}
     {{- fail (printf "posture: %s: the %s %q needs mesh: %s (%s); mesh is %s" $.rule $.kind $.name .mesh .reason $.mesh) -}}
   {{- end -}}
@@ -222,9 +241,10 @@ Input: dict "kind" source|destination "name" <name> "definitions" <dict> "rule" 
 {{- end -}}
 
 {{/*
-Build one rule and append it to acc.rules.
+Build one rule and append it to acc.rules, or, when it isn't enabled, validate it the same
+way and append { rule } to acc.disabled.
 Input: dict "root" "acc" "direction" "rule" "target" (dict key labels) "peerKey" "peerSpec"
-       "peerToken" "defaultSelector" "ports"
+       "peerToken" "defaultSelector" "ports" "enabled"
 */}}
 {{- define "posture.addRule" -}}
 {{- $peerOut := dict -}}
@@ -235,8 +255,12 @@ Input: dict "root" "acc" "direction" "rule" "target" (dict key labels) "peerKey"
 {{- $source := ternary .peerToken $targetToken (eq .direction "ingress") -}}
 {{- $destination := ternary $targetToken .peerToken (eq .direction "ingress") -}}
 {{- $name := include "posture.name" (dict "root" .root "rule" .rule "direction" .direction "source" $source "destination" $destination) -}}
-{{- $r := dict "name" $name "rule" .rule "direction" .direction "target" .target "peer" $peerOut.peer "ports" $portsOut.ports -}}
-{{- $_ := set .acc "rules" (append .acc.rules $r) -}}
+{{- if .enabled -}}
+  {{- $r := dict "name" $name "rule" .rule "direction" .direction "target" .target "peer" $peerOut.peer "ports" $portsOut.ports -}}
+  {{- $_ := set .acc "rules" (append .acc.rules $r) -}}
+{{- else -}}
+  {{- $_ := set .acc "disabled" (append .acc.disabled (dict "rule" .rule)) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -254,17 +278,19 @@ Input: dict "key" <key> "selector" <selector>; outputs JSON.
 {{/*
 Peers from a from/to map. Keys name workloads ("any" = every pod) or, for cidrs entries,
 just name the entry.
-Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
+Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector" "enabled"
+(the rule's own enabled; each entry is on only if the rule is too)
 */}}
 {{- define "posture.addPeerRules" -}}
 {{- $ctx := . -}}
 {{- range $key, $entry := .entries -}}
-  {{- $spec := omit $entry "ports" -}}
+  {{- $on := and $ctx.enabled (eq (include "posture.enabled" $entry) "true") -}}
+  {{- $spec := omit $entry "ports" "enabled" -}}
   {{- if not (hasKey $spec "cidrs") -}}
     {{- $_ := set $spec "workload" $key -}}
   {{- end -}}
   {{- $token := include "posture.peerToken" (dict "key" $key "namespace" ($entry.namespace | default "")) -}}
-  {{- $_ := include "posture.addRule" (dict "root" $ctx.root "acc" $ctx.acc "direction" $ctx.direction "rule" (printf "%s.%s" $ctx.path $key) "target" $ctx.target "peerKey" $key "peerSpec" $spec "peerToken" $token "defaultSelector" $ctx.defaultSelector "ports" $entry.ports) -}}
+  {{- $_ := include "posture.addRule" (dict "root" $ctx.root "acc" $ctx.acc "direction" $ctx.direction "rule" (printf "%s.%s" $ctx.path $key) "target" $ctx.target "peerKey" $key "peerSpec" $spec "peerToken" $token "defaultSelector" $ctx.defaultSelector "ports" $entry.ports "enabled" $on) -}}
 {{- end -}}
 {{- end -}}
 
@@ -280,38 +306,44 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
 {{- $_ := include "posture.resolveDefinitions" (dict "kind" "destinations" "presets" (include "posture.presets.destinations" . | fromYaml) "user" $v.destinations "out" $out) -}}
 {{- $destinations := $out.definitions -}}
 
-{{- $acc := dict "rules" (list) -}}
+{{- $acc := dict "rules" (list) "disabled" (list) -}}
 
 {{- range $key, $rule := $v.ingress -}}
   {{- $path := printf "ingress.%s" $key -}}
+  {{- $ruleOn := eq (include "posture.enabled" $rule) "true" -}}
   {{- $selector := $rule.selector | default "name" -}}
   {{- $target := include "posture.target" (dict "key" $key "selector" $selector) | fromJson -}}
-  {{- $_ := include "posture.addPeerRules" (dict "root" $root "acc" $acc "direction" "ingress" "path" (printf "%s.from" $path) "target" $target "entries" $rule.from "defaultSelector" $selector) -}}
-  {{- range $name, $ports := $rule.sources -}}
+  {{- $_ := include "posture.addPeerRules" (dict "root" $root "acc" $acc "direction" "ingress" "path" (printf "%s.from" $path) "target" $target "entries" $rule.from "defaultSelector" $selector "enabled" $ruleOn) -}}
+  {{- range $name, $ref := $rule.sources -}}
     {{- $rulePath := printf "%s.sources.%s" $path $name -}}
+    {{- $on := and $ruleOn (eq (include "posture.enabled" $ref) "true") -}}
+    {{- $ports := $ref -}}
+    {{- if kindIs "map" $ref -}}{{- $ports = $ref.ports -}}{{- end -}}
     {{- $found := dict -}}
-    {{- $_ := include "posture.lookupDefinition" (dict "kind" "source" "name" $name "definitions" $sources "rule" $rulePath "mesh" $mesh "out" $found) -}}
-    {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "ingress" "rule" $rulePath "target" $target "peerKey" $name "peerSpec" $found.definition "peerToken" $name "defaultSelector" "name" "ports" $ports) -}}
+    {{- $_ := include "posture.lookupDefinition" (dict "kind" "source" "name" $name "definitions" $sources "rule" $rulePath "mesh" $mesh "enabled" $on "out" $found) -}}
+    {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "ingress" "rule" $rulePath "target" $target "peerKey" $name "peerSpec" $found.definition "peerToken" $name "defaultSelector" "name" "ports" $ports "enabled" $on) -}}
   {{- end -}}
 {{- end -}}
 
 {{- range $key, $rule := $v.egress -}}
   {{- $path := printf "egress.%s" $key -}}
+  {{- $ruleOn := eq (include "posture.enabled" $rule) "true" -}}
   {{- $selector := $rule.selector | default "name" -}}
   {{- $target := include "posture.target" (dict "key" $key "selector" $selector) | fromJson -}}
-  {{- $_ := include "posture.addPeerRules" (dict "root" $root "acc" $acc "direction" "egress" "path" (printf "%s.to" $path) "target" $target "entries" $rule.to "defaultSelector" $selector) -}}
-  {{- range $name := ($rule.destinations | default list | uniq) -}}
+  {{- $_ := include "posture.addPeerRules" (dict "root" $root "acc" $acc "direction" "egress" "path" (printf "%s.to" $path) "target" $target "entries" $rule.to "defaultSelector" $selector "enabled" $ruleOn) -}}
+  {{- range $name, $ref := ($rule.destinations | default dict) -}}
     {{- $rulePath := printf "%s.destinations.%s" $path $name -}}
+    {{- $on := and $ruleOn (eq (include "posture.enabled" ($ref | default dict)) "true") -}}
     {{- $found := dict -}}
-    {{- $_ := include "posture.lookupDefinition" (dict "kind" "destination" "name" $name "definitions" $destinations "rule" $rulePath "mesh" $mesh "out" $found) -}}
-    {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "egress" "rule" $rulePath "target" $target "peerKey" $name "peerSpec" $found.definition "peerToken" $name "defaultSelector" "name" "ports" $found.definition.ports) -}}
+    {{- $_ := include "posture.lookupDefinition" (dict "kind" "destination" "name" $name "definitions" $destinations "rule" $rulePath "mesh" $mesh "enabled" $on "out" $found) -}}
+    {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "egress" "rule" $rulePath "target" $target "peerKey" $name "peerSpec" $found.definition "peerToken" $name "defaultSelector" "name" "ports" $found.definition.ports "enabled" $on) -}}
   {{- end -}}
 {{- end -}}
 
 {{- if $v.allowDNS -}}
   {{- $found := dict -}}
-  {{- $_ := include "posture.lookupDefinition" (dict "kind" "destination" "name" "dns" "definitions" $destinations "rule" "allowDNS" "mesh" $mesh "out" $found) -}}
-  {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "egress" "rule" "allowDNS" "target" (dict "key" "any" "labels" (dict)) "peerKey" "dns" "peerSpec" $found.definition "peerToken" "dns" "defaultSelector" "name" "ports" $found.definition.ports) -}}
+  {{- $_ := include "posture.lookupDefinition" (dict "kind" "destination" "name" "dns" "definitions" $destinations "rule" "allowDNS" "mesh" $mesh "enabled" true "out" $found) -}}
+  {{- $_ := include "posture.addRule" (dict "root" $root "acc" $acc "direction" "egress" "rule" "allowDNS" "target" (dict "key" "any" "labels" (dict)) "peerKey" "dns" "peerSpec" $found.definition "peerToken" "dns" "defaultSelector" "name" "ports" $found.definition.ports "enabled" true) -}}
 {{- end -}}
 
 {{- $fixed := dict
@@ -332,17 +364,21 @@ Input: dict "root" "acc" "direction" "path" "target" "entries" "defaultSelector"
 {{- $exceptionsOut := dict -}}
 {{- $_ := include "posture.exceptions" (dict "root" $root "out" $exceptionsOut) -}}
 
+{{- $disabled := $acc.disabled -}}
+{{- range $mtlsOut.mtls.disabled -}}{{- $disabled = append $disabled . -}}{{- end -}}
+
 {{- toJson (dict
   "mesh" $mesh
   "namespace" .Release.Namespace
   "trustDomain" $v.trustDomain
   "networkPolicy" (dict "ingress" $v.networkPolicy.ingress "egress" $v.networkPolicy.egress)
   "authorization" (dict "enabled" $v.authorization.enabled)
-  "mtls" $mtlsOut.mtls
+  "mtls" (omit $mtlsOut.mtls "disabled")
   "exceptions" $exceptionsOut.exceptions
   "allowSameNamespace" $v.allowSameNamespace
   "fixed" $fixed
-  "rules" $acc.rules) -}}
+  "rules" $acc.rules
+  "disabled" $disabled) -}}
 {{- end -}}
 
 {{/*
@@ -352,20 +388,25 @@ STRICT. Under STRICT, a cidrs source (outside the cluster, never mTLS) must targ
 ports, or nothing could ever reach them.
 Adds fixed.mtlsNamespace (mtls-<mode>, unless inherit) and fixed.plaintextAll
 (allow-plaintext-to-all, PERMISSIVE) when a mesh is set.
+Disabled exclusions (object form, enabled: false) are validated like the rest but skip the
+mesh and mode checks, render nothing, and don't cover any port.
 Input: dict "root" "mesh" "rules" "fixed" "out"; sets out.mtls:
-  { mode, exclusions: [{ key, name, rule, labels, ports: [int] }] }
+  { mode, exclusions: [{ key, name, rule, labels, ports: [int] }], disabled: [{ rule }] }
+  (out.mtls.disabled is merged into the model's disabled, not output under mtls)
 */}}
 {{- define "posture.mtls" -}}
 {{- $root := .root -}}
 {{- $v := $root.Values -}}
 {{- $mode := $v.mtls.mode -}}
 {{- $exclusions := list -}}
+{{- $disabled := list -}}
 {{- range $key, $entry := ($v.mtls.exclusions | default dict) -}}
   {{- $path := printf "mtls.exclusions.%s" $key -}}
-  {{- if eq $.mesh "none" -}}
+  {{- $on := eq (include "posture.enabled" $entry) "true" -}}
+  {{- if not $on -}}
+  {{- else if eq $.mesh "none" -}}
     {{- fail (printf "posture: %s: exclusions need a mesh to accept plaintext beside mTLS; mesh is none" $path) -}}
-  {{- end -}}
-  {{- if ne $mode "STRICT" -}}
+  {{- else if ne $mode "STRICT" -}}
     {{- fail (printf "posture: %s: exclusions only apply with mtls.mode STRICT; mode is %s (%s)" $path $mode (ternary "every port already accepts plaintext" "the chart isn't managing mTLS" (eq $mode "PERMISSIVE"))) -}}
   {{- end -}}
   {{- $ports := $entry -}}
@@ -377,10 +418,12 @@ Input: dict "root" "mesh" "rules" "fixed" "out"; sets out.mtls:
   {{- $intPorts := list -}}
   {{- range $ports -}}{{- $intPorts = append $intPorts (int .) -}}{{- end -}}
   {{- $name := include "posture.name" (dict "root" $root "rule" $path "fixed" (printf "allow-plaintext-to-%s" $key)) -}}
-  {{- $exclusions = append $exclusions (dict
-    "key" $key "name" $name "rule" $path
-    "labels" (dict (include "posture.selectorLabel" $selector) $key)
-    "ports" ($intPorts | uniq)) -}}
+  {{- $labels := dict (include "posture.selectorLabel" $selector) $key -}}
+  {{- if $on -}}
+    {{- $exclusions = append $exclusions (dict "key" $key "name" $name "rule" $path "labels" $labels "ports" ($intPorts | uniq)) -}}
+  {{- else -}}
+    {{- $disabled = append $disabled (dict "rule" $path) -}}
+  {{- end -}}
 {{- end -}}
 {{- if ne .mesh "none" -}}
   {{- if ne $mode "inherit" -}}
@@ -414,7 +457,7 @@ Input: dict "root" "mesh" "rules" "fixed" "out"; sets out.mtls:
     {{- end -}}
   {{- end -}}
 {{- end -}}
-{{- $_ := set .out "mtls" (dict "mode" $mode "exclusions" $exclusions) -}}
+{{- $_ := set .out "mtls" (dict "mode" $mode "exclusions" $exclusions "disabled" $disabled) -}}
 {{- end -}}
 
 {{/*

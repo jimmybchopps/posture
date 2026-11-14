@@ -13,7 +13,7 @@ tests:
         grafana: { sources: { backup-agent: [3000] } }
         any: { from: { any: { namespace: tooling, ports: [8080] } } }
       egress:
-        prometheus2: { destinations: [license-server] }
+        prometheus2: { destinations: { license-server: {} } }
     asserts:
       - notFailedTemplate: {}
 
@@ -88,7 +88,7 @@ tests:
   - it: rejects a key with a dot in egress
     set:
       egress:
-        grafana.v2: { destinations: [dns] }
+        grafana.v2: { destinations: { dns: {} } }
     asserts:
       - failedTemplate:
           errorPattern: "grafana.v2"
@@ -187,7 +187,7 @@ tests:
 
   - it: rejects any as a destinations reference
     set:
-      egress.grafana.destinations: [any]
+      egress.grafana.destinations: { any: {} }
     asserts:
       - failedTemplate: {}
 
@@ -405,3 +405,75 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "namespace"
+
+  # enabled (phase 5a)
+  - it: accepts enabled on rules, peers, references, and exclusions
+    set:
+      mesh: istio
+      ingress.grafana:
+        enabled: false
+        from: { renderer: { ports: [3000], enabled: false }, any: { namespace: tooling, ports: [3000], enabled: true } }
+        sources: { monitoring: [3000], ingress-gateway: { ports: [3000], enabled: false } }
+      ingress.api.from.vpn: { cidrs: [10.50.0.0/16], ports: [8080], enabled: false }
+      egress.grafana:
+        enabled: true
+        to: { keycloak: { namespace: keycloak, ports: [8080], enabled: false } }
+        destinations: { postgres: {}, sso: { enabled: false } }
+      mtls.exclusions.api: { ports: [8081], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects a non-boolean enabled on a rule
+    set:
+      ingress.grafana: { enabled: "no", from: { renderer: { ports: [3000] } } }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a non-boolean enabled on a peer
+    set:
+      egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080], enabled: "false" }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a non-boolean enabled on an exclusion
+    set:
+      mesh: istio
+      mtls.exclusions.api: { ports: [8081], enabled: "no" }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a sources reference object without ports
+    set:
+      ingress.grafana.sources.monitoring: { enabled: false }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown key on a sources reference object
+    set:
+      ingress.grafana.sources.monitoring: { ports: [3000], namespace: x }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects destinations as a list (it's a map, so layered values merge)
+    set:
+      egress.grafana.destinations: [postgres]
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown key on a destinations reference
+    set:
+      egress.grafana.destinations.postgres: { ports: [5433] }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a non-boolean enabled on a destinations reference
+    set:
+      egress.grafana.destinations.postgres: { enabled: "no" }
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects enabled on a source or destination definition (only references take it)
+    set:
+      destinations.vault: { namespace: vault, workload: vault, ports: [8200], enabled: false }
+    asserts:
+      - failedTemplate: {}

@@ -5,6 +5,12 @@
 #
 # Map keys (sources, destinations, ingress, egress, and the entries under them) become parts
 # of object names: lowercase letters, digits, and "-" only.
+#
+# Switch off, don't delete: every rule (ingress.<target>, egress.<source>), every from/to
+# entry, every sources and destinations reference, and every mtls.exclusions object takes
+# enabled: false (default true). A disabled entry renders nothing, but is still validated
+# and listed in NOTES.txt; disabling a rule disables everything under it. Everything a user
+# might override is a map, so it merges across values files.
 
 # -- The service mesh in use. Changes what is rendered alongside the NetworkPolicies.
 #    none:  NetworkPolicies only.
@@ -52,9 +58,9 @@ authorization:
 #                 inherit     render nothing; the mesh-wide setting applies
 #                 There is no DISABLE: an excluded port still uses mTLS when the client offers it.
 #    exclusions:  workload in this namespace -> ports that also accept plaintext, only with
-#                 mode STRICT. A list of port numbers, or { selector, ports } to match another
-#                 label (selector as for ingress rules). "any" isn't accepted: Istio sets
-#                 per-port mTLS only on a selected workload.
+#                 mode STRICT. A list of port numbers, or { selector, ports, enabled } to match
+#                 another label (selector as for ingress rules) or switch it off. "any" isn't
+#                 accepted: Istio sets per-port mTLS only on a selected workload.
 #    istio: PeerAuthentication mtls-<mode>, plus allow-plaintext-to-<workload> per exclusion.
 #           Wherever plaintext is accepted, authorization also admits clients without a mesh
 #           identity on those ports (allow-plaintext-to-<workload>; with PERMISSIVE,
@@ -67,6 +73,7 @@ mtls:
   exclusions: {}
 #    grafana: [9090]
 #    renderer: { selector: instance, ports: [8081] }
+#    api: { ports: [8081], enabled: false }
 
 # -- Allow all traffic between pods in this namespace, on every port.
 #    Renders allow-same-namespace.
@@ -154,11 +161,12 @@ destinations: {}
 # -- Ingress rules, keyed by target workload in this namespace ("any" = every pod).
 #    selector:  which label the workload name matches: name (default, app.kubernetes.io/name),
 #               component, instance, or app.
+#    enabled:   default true; false switches off the whole rule (every from and sources entry).
 #    from:      peers keyed by workload ("any" = every pod), each with ports (required),
 #               and optional namespace (omitted = this namespace, "any" = every namespace),
-#               selector, and serviceAccount.
+#               selector, serviceAccount, and enabled.
 #    sources:   references to predefined or custom sources; the value is the list of ports
-#               on this target (required).
+#               on this target (required), or { ports, enabled } to switch one off.
 #    Ports are always numeric: 9090, or { port: 53, protocol: UDP }, or
 #    { port: 32000, endPort: 32768 }. protocol defaults to TCP.
 ingress: {}
@@ -170,16 +178,20 @@ ingress: {}
 #        ports: [3000]
 #    sources:
 #      monitoring: [3000]
-#      ingress-gateway: [3000]
+#      ingress-gateway: { ports: [3000], enabled: false }
 
 # -- Egress rules, keyed by source workload in this namespace ("any" = every pod).
+#    enabled:       default true; false switches off the whole rule.
 #    to:            peers keyed by workload, same fields as ingress "from".
-#    destinations:  a list of predefined or custom destinations; ports come from their
-#                   definitions.
+#    destinations:  references to predefined or custom destinations, keyed by name, each {}
+#                   or { enabled: false }; ports come from their definitions. A map, not a
+#                   list, so layered values files merge instead of replacing each other.
 egress: {}
 #  grafana:
 #    to:
 #      keycloak:
 #        namespace: keycloak
 #        ports: [8080]
-#    destinations: [postgres, sso]
+#    destinations:
+#      postgres: {}
+#      sso: { enabled: false }

@@ -334,6 +334,16 @@ only the shape below and the gateway conventions.
   the gateway; `allowedHosts` always leaves through the gateway and is checked against
   `boundary`'s list.
 
+## Disabled entries
+
+Every rendering rule below applies to enabled entries only. A disabled entry (`enabled: false`
+on itself or on its rule) renders nothing in any layer, is left out of the name-collision
+check, and is listed in NOTES.txt. It still goes through every structural check (schema,
+ports, selectors, peer shape, unknown source or destination names), so a typo never hides
+behind `enabled: false`. Checks that depend on the surroundings skip it, since it asks for
+nothing: a destination's required mesh (`egress-gateway`), an exclusion needing a mesh or
+STRICT, and STRICT coverage of `cidrs` sources (which counts only enabled exclusions).
+
 ## Rendering rules (network policies)
 
 - `networkPolicy.<direction>`: each enabled direction is default-deny, one NetworkPolicy
@@ -567,6 +577,6 @@ qualified, because `restrict-image-registries` matches plain prefixes
 | 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
 | 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
-| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | not started |
+| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a done |
 | 6 | Linkerd renderer | not started |
 | 7 | Cilium renderer | not started |

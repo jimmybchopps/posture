@@ -108,7 +108,7 @@ tests:
     set:
       allowSameNamespace: false
       egress.grafana.to.keycloak: { namespace: keycloak, ports: [8080] }
-      egress.grafana.destinations: [postgres]
+      egress.grafana.destinations: { postgres: {} }
     asserts:
       - hasDocuments: { count: 1 }
       - equal: { path: metadata.name, value: deny-all-ingress }
@@ -307,3 +307,22 @@ tests:
       mtls.exclusions.api: [8081]
     asserts:
       - hasDocuments: { count: 0 }
+
+  # enabled (phase 5a)
+  - it: a disabled ingress peer or rule has no ALLOW
+    set:
+      ingress.grafana.from:
+        renderer: { ports: [3000], enabled: false }
+        keycloak: { namespace: keycloak, serviceAccount: keycloak, ports: [3000] }
+      ingress.api: { enabled: false, from: { web: { ports: [8080] } } }
+    asserts:
+      - hasDocuments: { count: 3 }
+      - equal: { path: metadata.name, value: allow-ingress-from-keycloak-to-grafana }
+        documentIndex: 2
+
+  - it: a disabled exclusion admits no plaintext
+    set:
+      mtls.exclusions.api: { ports: [8081], enabled: false }
+    asserts:
+      - hasDocuments: { count: 2 }
+      - notEqual: { path: metadata.name, value: allow-plaintext-to-api }

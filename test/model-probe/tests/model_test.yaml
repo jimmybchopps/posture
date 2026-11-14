@@ -90,7 +90,7 @@ tests:
     asserts:
       - hasDocuments: { count: 5 }
 
-  - it: one rule per to entry and per destinations reference, duplicates dropped
+  - it: one rule per to entry and per destinations reference
     set:
       posture:
         allowDNS: false
@@ -98,7 +98,7 @@ tests:
           grafana:
             to:
               keycloak: { namespace: keycloak, ports: [8080] }
-            destinations: [postgres, sso, postgres]
+            destinations: { postgres: {}, sso: {} }
     asserts:
       - hasDocuments: { count: 4 }
 
@@ -195,3 +195,43 @@ tests:
                   - { matchLabels: { app.kubernetes.io/name: prometheus }, reason: reads /proc, expires: "2999-12-31" }
             expired:
               - { rule: exceptions.prometheus.policies.disallow-host-ports, expires: "2000-01-01" }
+
+  - it: nothing is disabled by default
+    documentSelector: { path: name, value: model }
+    asserts:
+      - equal: { path: disabled, value: [] }
+
+  - it: disabled entries are listed by key path and left out of rules
+    set:
+      posture:
+        mesh: istio
+        allowDNS: false
+        ingress:
+          grafana:
+            from:
+              renderer: { ports: [3000], enabled: false }
+              keycloak: { namespace: keycloak, ports: [3000] }
+            sources: { monitoring: { ports: [3000], enabled: false } }
+        egress:
+          grafana:
+            enabled: false
+            to: { keycloak: { namespace: keycloak, ports: [8080] } }
+            destinations: { postgres: {} }
+        mtls:
+          exclusions:
+            api: { ports: [8081], enabled: false }
+    asserts:
+      - hasDocuments: { count: 2 }
+      - equal:
+          path: disabled
+          value:
+            - { rule: ingress.grafana.from.renderer }
+            - { rule: ingress.grafana.sources.monitoring }
+            - { rule: egress.grafana.to.keycloak }
+            - { rule: egress.grafana.destinations.postgres }
+            - { rule: mtls.exclusions.api }
+        documentIndex: 0
+      - equal: { path: mtls.exclusions, value: [] }
+        documentIndex: 0
+      - equal: { path: rule, value: ingress.grafana.from.keycloak }
+        documentIndex: 1

@@ -71,7 +71,7 @@ tests:
 
   - it: a raw podSelector from a destination definition
     set:
-      egress.grafana.destinations: [dns]
+      egress.grafana.destinations: { dns: {} }
     asserts:
       - equal:
           path: spec.egress[0].to
@@ -129,7 +129,7 @@ tests:
   - it: istio adds TCP 15008 to in-cluster egress rules
     set:
       mesh: istio
-      egress.grafana.destinations: [vault]
+      egress.grafana.destinations: { vault: {} }
       destinations.vault: { namespace: vault, workload: vault, ports: [8200] }
     asserts:
       - equal: { path: 'spec.egress[0].ports', value: [{ port: 8200, protocol: TCP }, { port: 15008, protocol: TCP }] }
@@ -137,14 +137,14 @@ tests:
   - it: istio doesn't add 15008 to cidrs rules
     set:
       mesh: istio
-      egress.grafana.destinations: [postgres]
+      egress.grafana.destinations: { postgres: {} }
     asserts:
       - equal: { path: 'spec.egress[0].ports', value: [{ port: 5432, protocol: TCP }] }
 
   - it: istio doesn't duplicate 15008 already listed (egress-gateway)
     set:
       mesh: istio
-      egress.grafana.destinations: [egress-gateway]
+      egress.grafana.destinations: { egress-gateway: {} }
     asserts:
       - equal: { path: 'spec.egress[0].ports', value: [{ port: 15008, protocol: TCP }] }
 
@@ -193,7 +193,7 @@ tests:
   - it: a disabled direction still validates its rules
     set:
       networkPolicy.egress: false
-      egress.grafana.destinations: [postgress]
+      egress.grafana.destinations: { postgress: {} }
     asserts:
       - failedTemplate:
           errorPattern: 'unknown destination "postgress"'
@@ -204,3 +204,56 @@ tests:
       ingress.grafana.from.renderer: { ports: [3000] }
     asserts:
       - equal: { path: metadata.name, value: team-a-allow-ingress-from-renderer-to-grafana }
+
+  # enabled (phase 5a): disabled entries render nothing
+  - it: a disabled peer renders nothing; its sibling renders
+    set:
+      ingress.grafana.from:
+        renderer: { ports: [3000], enabled: false }
+        keycloak: { namespace: keycloak, ports: [3000] }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-ingress-from-keycloak-to-grafana }
+
+  - it: a disabled rule renders none of its peers or references
+    set:
+      ingress.grafana:
+        enabled: false
+        from: { renderer: { ports: [3000] } }
+        sources: { monitoring: [3000] }
+      egress.grafana:
+        enabled: false
+        to: { keycloak: { namespace: keycloak, ports: [8080] } }
+        destinations: { postgres: {} }
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: disabled source and destination references render nothing
+    set:
+      ingress.grafana.sources:
+        monitoring: { ports: [3000], enabled: false }
+        ingress-gateway: [3000]
+      egress.grafana.destinations:
+        postgres: { enabled: false }
+        sso: {}
+    asserts:
+      - hasDocuments: { count: 2 }
+      - equal: { path: metadata.name, value: allow-ingress-from-ingress-gateway-to-grafana }
+        documentIndex: 0
+      - equal: { path: metadata.name, value: allow-egress-from-grafana-to-sso }
+        documentIndex: 1
+
+  - it: enabled true is the same as leaving it out
+    set:
+      ingress.grafana: { enabled: true, from: { renderer: { ports: [3000], enabled: true } } }
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: allow-ingress-from-renderer-to-grafana }
+
+  - it: disabled entries render nothing under mesh istio either
+    set:
+      mesh: istio
+      ingress.grafana.from.renderer: { ports: [3000], enabled: false }
+      egress.grafana.destinations.egress-gateway: { enabled: false }
+    asserts:
+      - hasDocuments: { count: 0 }

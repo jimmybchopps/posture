@@ -170,3 +170,18 @@ tests:
       - matchRegexRaw: { pattern: "WARNING: these exceptions have expired" }
       - matchRegexRaw: { pattern: "- exceptions.prometheus.policies.disallow-host-path \\(expired 2000-01-01\\)" }
       - notMatchRegexRaw: { pattern: "Policy exceptions \\(posture-exceptions\\)" }
+
+  # enabled (phase 5a)
+  - it: lists disabled entries by key path, not as a warning
+    set:
+      ingress.grafana.from.renderer: { ports: [3000], enabled: false }
+      egress.grafana: { enabled: false, destinations: { postgres: {} } }
+    asserts:
+      - matchRegexRaw: { pattern: "Disabled \\(enabled: false; validated, not rendered\\):\\n  - ingress.grafana.from.renderer\\n  - egress.grafana.destinations.postgres\\n" }
+      - notMatchRegexRaw: { pattern: WARNING }
+
+  - it: no disabled section when nothing is disabled
+    set:
+      ingress.grafana.from.renderer: { ports: [3000] }
+    asserts:
+      - notMatchRegexRaw: { pattern: "Disabled \\(" }

@@ -71,6 +71,9 @@
                 "additionalProperties": false,
                 "required": ["ports"],
                 "properties": {
+                  "enabled": {
+                    "$ref": "#/definitions/enabled"
+                  },
                   "selector": {
                     "$ref": "#/definitions/selector"
                   },
@@ -158,6 +161,10 @@
     }
   },
   "definitions": {
+    "enabled": {
+      "description": "Default true. false renders nothing, but the entry is still validated.",
+      "type": "boolean"
+    },
     "name": {
       "type": "string",
       "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
@@ -357,6 +364,9 @@
         "ports"
       ],
       "properties": {
+        "enabled": {
+          "$ref": "#/definitions/enabled"
+        },
         "namespace": {
           "$ref": "#/definitions/namespace"
         },
@@ -379,6 +389,9 @@
         "ports"
       ],
       "properties": {
+        "enabled": {
+          "$ref": "#/definitions/enabled"
+        },
         "cidrs": {
           "$ref": "#/definitions/cidrs"
         },
@@ -395,6 +408,9 @@
         "ports"
       ],
       "properties": {
+        "enabled": {
+          "$ref": "#/definitions/enabled"
+        },
         "namespace": {
           "$ref": "#/definitions/namespace"
         },
@@ -492,6 +508,9 @@
         }
       ],
       "properties": {
+        "enabled": {
+          "$ref": "#/definitions/enabled"
+        },
         "selector": {
           "$ref": "#/definitions/selector"
         },
@@ -499,13 +518,31 @@
           "$ref": "#/definitions/peers"
         },
         "sources": {
+          "description": "Source name -> the ports on this target: a ports list, or { ports, enabled }.",
           "type": "object",
           "minProperties": 1,
           "propertyNames": {
             "$ref": "#/definitions/nameNotAny"
           },
           "additionalProperties": {
-            "$ref": "#/definitions/ports"
+            "oneOf": [
+              {
+                "$ref": "#/definitions/ports"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["ports"],
+                "properties": {
+                  "enabled": {
+                    "$ref": "#/definitions/enabled"
+                  },
+                  "ports": {
+                    "$ref": "#/definitions/ports"
+                  }
+                }
+              }
+            ]
           }
         }
       }
@@ -527,6 +564,9 @@
         }
       ],
       "properties": {
+        "enabled": {
+          "$ref": "#/definitions/enabled"
+        },
         "selector": {
           "$ref": "#/definitions/selector"
         },
@@ -534,10 +574,20 @@
           "$ref": "#/definitions/peers"
         },
         "destinations": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
+          "description": "Destination name -> {} (ports come from its definition), or { enabled }.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
             "$ref": "#/definitions/nameNotAny"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "$ref": "#/definitions/enabled"
+              }
+            }
           }
         }
       }

@@ -78,3 +78,13 @@ tests:
       networkPolicy: { ingress: false, egress: false }
     asserts:
       - hasDocuments: { count: 1 }
+
+  # enabled (phase 5a)
+  - it: a disabled exclusion renders no PeerAuthentication; an enabled one does
+    set:
+      mtls.exclusions.api: { ports: [8081], enabled: false }
+      mtls.exclusions.web: { ports: [9090] }
+    asserts:
+      - hasDocuments: { count: 2 }
+      - equal: { path: metadata.name, value: allow-plaintext-to-web }
+        documentIndex: 1

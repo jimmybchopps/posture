@@ -14,4 +14,6 @@ ingress:
 
 egress:
   grafana:
-    destinations: [postgres, sso]
+    destinations:
+      postgres: {}
+      sso: {}

@@ -12,7 +12,7 @@ tests:
 
   - it: a dns destination next to allowDNS
     set:
-      egress.any.destinations: [dns]
+      egress.any.destinations: { dns: {} }
     asserts:
       - failedTemplate:
           errorPattern: 'posture: egress.any.destinations.dns and allowDNS both produce the object name "allow-egress-from-all-to-dns"'
@@ -20,7 +20,7 @@ tests:
   - it: no collision with allowDNS off
     set:
       allowDNS: false
-      egress.any.destinations: [dns]
+      egress.any.destinations: { dns: {} }
     asserts:
       - notFailedTemplate: {}
 
@@ -41,7 +41,7 @@ tests:
   - it: a collision in a disabled direction still fails
     set:
       networkPolicy.egress: false
-      egress.any.destinations: [dns]
+      egress.any.destinations: { dns: {} }
     asserts:
       - failedTemplate:
           errorPattern: "both produce the object name"
@@ -49,7 +49,14 @@ tests:
   - it: collisions are checked after namePrefix
     set:
       namePrefix: team-a
-      egress.any.destinations: [dns]
+      egress.any.destinations: { dns: {} }
     asserts:
       - failedTemplate:
           errorPattern: '"team-a-allow-egress-from-all-to-dns"'
+
+  - it: no collision when one of the two entries is disabled
+    set:
+      ingress.grafana.from.monitoring: { namespace: monitoring, ports: [3000], enabled: false }
+      ingress.grafana.sources.monitoring: [3000]
+    asserts:
+      - notFailedTemplate: {}

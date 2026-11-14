@@ -5,13 +5,13 @@ tests:
   - it: valid values render nothing
     set:
       ingress.grafana.sources.monitoring: [3000]
-      egress.grafana.destinations: [postgres]
+      egress.grafana.destinations: { postgres: {} }
     asserts:
       - hasDocuments: { count: 0 }
 
   - it: an unknown destination fails with the known names
     set:
-      egress.grafana.destinations: [postgress]
+      egress.grafana.destinations: { postgress: {} }
     asserts:
       - failedTemplate:
           errorPattern: 'posture: egress.grafana.destinations.postgress: unknown destination "postgress"; known: dns, egress-gateway, https, kube-api, ldap, ntp, postgres, redis, smtp, sso, storage, syslog$'
@@ -19,7 +19,7 @@ tests:
   - it: the known names include custom destinations
     set:
       destinations.vault: { namespace: vault, workload: vault, ports: [8200] }
-      egress.grafana.destinations: [vualt]
+      egress.grafana.destinations: { vualt: {} }
     asserts:
       - failedTemplate:
           errorPattern: 'known: .*syslog, vault$'
@@ -75,7 +75,7 @@ tests:
 
   - it: egress-gateway fails with mesh none
     set:
-      egress.grafana.destinations: [egress-gateway]
+      egress.grafana.destinations: { egress-gateway: {} }
     asserts:
       - failedTemplate:
           errorPattern: 'posture: egress.grafana.destinations.egress-gateway: the destination "egress-gateway" needs mesh: istio .*; mesh is none$'
@@ -83,7 +83,7 @@ tests:
   - it: egress-gateway works with mesh istio
     set:
       mesh: istio
-      egress.grafana.destinations: [egress-gateway]
+      egress.grafana.destinations: { egress-gateway: {} }
     asserts:
       - notFailedTemplate: {}
 
@@ -97,7 +97,7 @@ tests:
   - it: endPort lower than port fails in a destination definition, naming the reference
     set:
       destinations.range: { cidrs: [10.0.0.0/8], ports: [{ port: 9000, endPort: 8000 }] }
-      egress.grafana.destinations: [range]
+      egress.grafana.destinations: { range: {} }
     asserts:
       - failedTemplate:
           errorPattern: "posture: egress.grafana.destinations.range: endPort 8000"
@@ -218,3 +218,62 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "posture: exceptions: 257 policies are excepted; the PolicyExceptions CRD allows at most 256"
+
+  # enabled (phase 5a): disabled entries are still validated...
+  - it: an unknown source fails even when the reference is disabled
+    set:
+      ingress.grafana.sources.monitorng: { ports: [3000], enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: ingress.grafana.sources.monitorng: unknown source "monitorng"'
+
+  - it: an unknown destination fails even when the whole rule is disabled
+    set:
+      egress.grafana: { enabled: false, destinations: { postgress: {} } }
+    asserts:
+      - failedTemplate:
+          errorPattern: 'posture: egress.grafana.destinations.postgress: unknown destination "postgress"'
+
+  - it: a bad port range fails even when the peer is disabled
+    set:
+      ingress.grafana.from.renderer: { ports: [{ port: 9000, endPort: 8000 }], enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "posture: ingress.grafana.from.renderer: endPort 8000 is lower than port 9000"
+
+  # ...but checks that depend on the surroundings skip them
+  - it: a disabled egress-gateway reference doesn't need mesh istio
+    set:
+      egress.grafana.destinations.egress-gateway: { enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a disabled exclusion doesn't need a mesh
+    set:
+      mtls.exclusions.api: { ports: [8081], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a disabled exclusion doesn't need STRICT
+    set:
+      mesh: istio
+      mtls.mode: PERMISSIVE
+      mtls.exclusions.api: { ports: [8081], enabled: false }
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: a disabled exclusion doesn't cover a cidrs source under STRICT
+    set:
+      mesh: istio
+      ingress.grafana.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000] }
+      mtls.exclusions.grafana: { ports: [3000], enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "ingress.grafana.from.vpn: port 3000 is reached from outside the cluster"
+
+  - it: a disabled cidrs source needs no exclusion under STRICT
+    set:
+      mesh: istio
+      ingress.grafana.from.vpn: { cidrs: [10.50.0.0/16], ports: [3000], enabled: false }
+    asserts:
+      - notFailedTemplate: {}

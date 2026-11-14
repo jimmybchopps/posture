@@ -31,7 +31,7 @@ tests:
 
   - it: private-range destinations use the three private ranges
     set:
-      posture.egress.grafana.destinations: [postgres]
+      posture.egress.grafana.destinations: { postgres: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-postgres }
     asserts:
       - equal:
@@ -46,7 +46,7 @@ tests:
     set:
       posture.mesh: istio
       posture.allowDNS: false
-      posture.egress.any.destinations: [dns, kube-api, postgres, redis, https, sso, storage, ldap, smtp, ntp, syslog, egress-gateway]
+      posture.egress.any.destinations: { dns: {}, kube-api: {}, postgres: {}, redis: {}, https: {}, sso: {}, storage: {}, ldap: {}, smtp: {}, ntp: {}, syslog: {}, egress-gateway: {} }
     asserts:
       - hasDocuments: { count: 13 }
       - equal:
@@ -65,7 +65,7 @@ tests:
   - it: egress-gateway is every pod in namespace gateway on 15008 with mesh istio
     set:
       posture.mesh: istio
-      posture.egress.grafana.destinations: [egress-gateway]
+      posture.egress.grafana.destinations: { egress-gateway: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-egress-gateway }
     asserts:
       - equal: { path: peer.labels, value: {} }
@@ -86,7 +86,7 @@ tests:
   - it: override cidrs only keeps the preset's ports
     set:
       posture.destinations.postgres: { cidrs: [10.20.5.0/24] }
-      posture.egress.grafana.destinations: [postgres]
+      posture.egress.grafana.destinations: { postgres: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-postgres }
     asserts:
       - equal: { path: peer.cidrs, value: [{ cidr: 10.20.5.0/24, except: [] }] }
@@ -95,7 +95,7 @@ tests:
   - it: override ports only keeps the preset's addresses
     set:
       posture.destinations.storage: { ports: [2049] }
-      posture.egress.grafana.destinations: [storage]
+      posture.egress.grafana.destinations: { storage: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-storage }
     asserts:
       - equal: { path: peer.inCluster, value: false }
@@ -105,7 +105,7 @@ tests:
   - it: switching to in-cluster drops the preset's cidrs
     set:
       posture.destinations.postgres: { namespace: databases, workload: postgres }
-      posture.egress.grafana.destinations: [postgres]
+      posture.egress.grafana.destinations: { postgres: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-postgres }
     asserts:
       - equal:
@@ -174,7 +174,7 @@ tests:
   - it: a new in-cluster destination without namespace is in this namespace
     set:
       posture.destinations.cache: { workload: memcached, ports: [11211] }
-      posture.egress.grafana.destinations: [cache]
+      posture.egress.grafana.destinations: { cache: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-cache }
     asserts:
       - equal: { path: peer.namespace, value: { scope: same, name: "" } }
@@ -183,7 +183,7 @@ tests:
   - it: a new outside destination with mixed ports
     set:
       posture.destinations.license-server: { cidrs: [10.30.0.15/32], ports: [27000, { port: 27001, protocol: UDP }] }
-      posture.egress.grafana.destinations: [license-server]
+      posture.egress.grafana.destinations: { license-server: {} }
     documentSelector: { path: name, value: allow-egress-from-grafana-to-license-server }
     asserts:
       - equal: { path: peer.cidrs, value: [{ cidr: 10.30.0.15/32, except: [] }] }
