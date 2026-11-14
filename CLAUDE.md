@@ -21,8 +21,12 @@ The build order is in `docs/PLAN.md`. Work through it phase by phase.
   service-account references by hand for the common cases.
 - **Maps, not lists, wherever a user might override.** Helm merges maps across values files
   and replaces lists wholesale. `ingress`, `egress`, `from`, `to`, `sources`, `destinations`,
-  `mtls.exclusions`, and `exceptions` are all maps. Lists are only used for ports, CIDRs, and
-  references to predefined destinations.
+  `mtls.exclusions`, `exceptions`, `profiles`, and the references to predefined sources and
+  destinations are all maps. Lists are only used for ports, CIDRs, and hostnames.
+- **Everything can be switched off where it's defined.** Every rule, peer, reference,
+  exclusion, and exception has `enabled` (default true). A disabled entry renders nothing but is
+  still validated, so turning something off (including something a profile added) never means
+  deleting it.
 - **One model, many renderers.** Values are normalized once (`templates/_model.tpl`) into an
   internal model; every output (NetworkPolicy, Istio, Linkerd, Cilium, exceptions) renders
   from the model, never from raw values.
@@ -43,6 +47,12 @@ The build order is in `docs/PLAN.md`. Work through it phase by phase.
 ## Values contract
 
 ```yaml
+profiles:                       # built-in profiles (see "Profiles"); applied under these values
+  istio-system:
+    enabled: true
+    settings:
+      apiServerCidrs: [10.0.0.0/24]
+
 mesh: none                      # none | istio | linkerd | cilium   (istio first; others later)
 trustDomain: cluster.local      # used to build mesh identities
 
@@ -53,7 +63,7 @@ authorization: { enabled: true } # mesh authorization policies from the ingress 
 mtls:                           # used when mesh isn't none
   mode: STRICT                  # STRICT | PERMISSIVE | inherit (render nothing); never DISABLE
   exclusions:                   # workload in this namespace -> ports that also accept plaintext
-    grafana: [9090]             # STRICT only; or { selector, ports }; "any" isn't accepted
+    grafana: [9090]             # STRICT only; or { selector, ports, enabled }; "any" isn't accepted
 allowSameNamespace: true        # all traffic between pods in this namespace
 allowDNS: true                  # egress from every pod to the "dns" destination
 
@@ -103,7 +113,7 @@ ingress:
     sources:                    # predefined or custom sources; value = ports on this workload (required)
       monitoring: [3000]
       ingress-gateway: [3000]
-      backup-agent: [3000]
+      backup-agent: { ports: [3000], enabled: false }   # object form, to switch it off
       office-vpn: [3000]
 
   any:                          # every pod in this namespace...
@@ -118,11 +128,26 @@ egress:
       keycloak:
         namespace: keycloak
         ports: [8080]
-    destinations: [postgres, sso, license-server, vault]   # predefined or custom; ports come from their definitions
+    destinations:               # predefined or custom; ports come from their definitions
+      postgres: {}
+      sso: {}
+      license-server: {}
+      vault: { enabled: false }
 
   any:                          # every pod in this namespace...
-    destinations: [https]       # ...may reach HTTPS on the private ranges
+    destinations:
+      https: {}                 # ...may reach HTTPS on the private ranges
+
+  allowedHosts:                 # reserved key: hosts outside the cluster this namespace may
+    github:                     # reach through the egress gateway (mesh: istio; see
+      hosts: [api.github.com]   # "Egress to hostnames")
+      ports: [443]
+      protocol: TLS
 ```
+
+Every rule (`ingress.<target>`, `egress.<source>`), every `from`/`to` entry, every `sources`
+and `destinations` reference, every `allowedHosts` entry, and every `mtls.exclusions` object
+also takes `enabled: false`.
 
 Order in a values file doesn't affect rendering, but `values.yaml`, the examples, and the docs
 always put `sources` and `destinations` before `ingress` and `egress`, so readers see a name
@@ -180,7 +205,8 @@ Precedence: entry `selector` > rule `selector` > `name`.
 | `from.any` / `to.any` + `namespace: any` | every pod in every namespace |
 | `from.<workload>` + `namespace: any` | pods with that label in any namespace |
 
-`any` can't be used as a workload name. `namespace: any` on a named workload without a
+`any` can't be used as a workload name. Under `egress`, `allowedHosts` is also reserved (see
+"Egress to hostnames"), so it can't be a workload name either. `namespace: any` on a named workload without a
 `serviceAccount` produces a NOTES.txt warning: at the NetworkPolicy layer it trusts a label
 anyone can set.
 
@@ -221,24 +247,92 @@ Cilium doesn't match pods with it at all.
 | `smtp` | private ranges | 25, 587 |
 | `ntp` | private ranges | 123/UDP |
 | `syslog` | private ranges | 514/UDP, 514/TCP, 6514 |
-| `egress-gateway` | namespace `gateway`, every pod | 15008 (HBONE); `mesh: istio` only, other meshes `fail` |
+| `egress-gateway` | namespace `egress-gateway`, every pod | 15008 (HBONE); `mesh: istio` only, other meshes `fail` |
 
 | Source | Default |
 |---|---|
 | `monitoring` | namespace `prometheus`, workload `prometheus`, serviceAccount `prometheus` |
-| `ingress-gateway` | namespace `gateway`, every pod |
+| `ingress-gateway` | namespace `ingress-gateway`, every pod |
 
 A destination carries its own ports; a source reference carries the ports on the target,
 because only the target knows which port is being reached.
 
 Preset defaults assume one namespace per application, named after it (`prometheus`,
 `keycloak`), which matches most charts' installation instructions. Gateway presets use the
-mesh-neutral namespace `gateway`.
+mesh-neutral namespaces `ingress-gateway` and `egress-gateway`, the same defaults the
+`boundary` chart uses.
 
 `egress-gateway` exists because, with Istio ambient, traffic to a hostname routed through the
 egress waypoint leaves the pod as HBONE to the waypoint, so the NetworkPolicy has to allow
 that hop. Cilium's egress gateway reroutes at the node, and Linkerd has none, so neither needs
 this destination.
+
+## Profiles
+
+A profile is a chart-defined layer of values that makes a known component's namespace work out
+of the box: its policy exceptions (with reasons), its network rules (which also produce its
+authorization policies), its sources, destinations, mTLS mode and exclusions, and
+`allowSameNamespace`/`allowDNS` where they differ. A user enables it and supplies the few
+settings only the site knows.
+
+- **Built-in profiles live in this chart**, in `templates/_profiles.tpl`, one `define` per
+  profile taking its resolved settings and returning ordinary values. Mesh profiles and gateway
+  profiles are separate:
+
+  | Profile | Kind | Namespace it's for | Settings |
+  |---|---|---|---|
+  | `istio-system` | mesh | Istio's control plane | `apiServerCidrs` (required: the API server calls istiod's webhook from host addresses) |
+  | `istio-ingress` | gateway | `ingress-gateway` | `ports` (listener ports, default 443 and 80), `clientCidrs` (where clients connect from, default the private ranges) |
+  | `istio-egress` | gateway | `egress-gateway` | `ports` (ports the waypoint forwards to, default 443 and 80) |
+
+  Later: `envoy-gateway` (controller and ingress, for Linkerd and no mesh) and Linkerd's and
+  Cilium's equivalents.
+- **Application profiles (Prometheus, Grafana, ...) are not in this chart.** They're plain
+  values files kept with whatever packages the application, layered with `-f`; no chart feature
+  is needed.
+- **Effective values:** chart defaults, then each enabled profile, then the user's values. The
+  `posture.values` helper builds them once and the model reads that instead of `.Values`. The
+  user's values always win.
+- **Custom deep merge**, not Sprig's `merge`/`mergeOverwrite` (they skip "empty" overrides, so a
+  user's `false` or `[]` would lose to a profile): maps merge recursively, lists and scalars are
+  replaced. To switch off something a profile adds, set `enabled: false` on it.
+- **What a profile may set:** everything about the namespace's posture. Never `mesh`,
+  `trustDomain`, `networkPolicy`, `authorization`, `policyExceptions`, or `namePrefix` (facts
+  about the cluster, troubleshooting switches, and a naming choice); an internal check fails if
+  a profile does.
+- **Two profiles that set the same value differently fail the render**, naming both, rather than
+  one winning by order.
+- **Settings are in the schema**: each built-in profile has its own `settings` object
+  (`additionalProperties: false`), so a misspelled profile or setting fails before rendering.
+- **Traceability:** objects from a profile carry `posture.dev/profile: <name>` next to
+  `posture.dev/rule`; NOTES.txt lists enabled profiles, their settings, and any profile entries
+  the user disabled.
+- **Mesh profiles render before the mesh exists.** `istio-system`'s posture is installed before
+  Istio (with `mesh: none`), so the profile must render correctly with `mesh: none` and pick up
+  the mesh objects on the upgrade after Istio is installed.
+
+## Egress to hostnames (`egress.allowedHosts`, Istio ambient)
+
+Hosts outside the cluster this namespace may reach. The cluster-wide limit is the `boundary`
+chart's: its egress waypoint refuses any destination not on its own list, so a namespace can
+only ask for hosts, never grant itself one. posture never references `boundary`; the two share
+only the shape below and the gateway conventions.
+
+- Entries are keyed by name: `enabled` (default true), exactly one of `hosts` (DNS names,
+  wildcards allowed) or `addresses` (IPs or CIDRs), `ports` (required, numeric), `protocol`
+  (`TLS` matched by SNI, `HTTP` matched by Host, `TCP` addresses only; `TCP` with `hosts`
+  fails), and optional `gateway` (the egress gateway's name, default `default`).
+- Per entry, a `ServiceEntry` named `allow-egress-from-all-to-<entry>`: the hosts or addresses
+  and ports, `location: MESH_EXTERNAL`, `exportTo: ["."]` (this namespace only), and the labels
+  `istio.io/use-waypoint: <gateway>` and `istio.io/use-waypoint-namespace: <the egress-gateway
+  destination's namespace>`. Overriding that destination's namespace moves both.
+- One NetworkPolicy, `allow-egress-from-all-to-egress-gateway`, letting every pod reach the
+  waypoint on 15008, rendered once when any entry is enabled. The ServiceEntry applies to the
+  whole namespace, so this is namespace-wide by design.
+- `mesh` other than `istio` fails until the Linkerd and Cilium phases render their own objects.
+- Not the same as `destinations` with `cidrs`: those go directly to site services and never pass
+  the gateway; `allowedHosts` always leaves through the gateway and is checked against
+  `boundary`'s list.
 
 ## Rendering rules (network policies)
 
@@ -356,7 +450,7 @@ Every generated object, of every kind, is named for what it allows, read left to
 | `ingress.grafana.from.any` + `namespace: any` | `allow-ingress-from-all-namespaces-to-grafana` |
 | `ingress.any.from.prometheus` | `allow-ingress-from-prometheus-to-all` |
 | `egress.grafana.to.keycloak` | `allow-egress-from-grafana-to-keycloak` |
-| `egress.grafana.destinations: [postgres]` | `allow-egress-from-grafana-to-postgres` |
+| `egress.grafana.destinations.postgres` | `allow-egress-from-grafana-to-postgres` |
 | `egress.prometheus.to.any` + `namespace: any` | `allow-egress-from-prometheus-to-all-namespaces` |
 
 Tokens: a map key is used as is; `any` as a target or source is `all`; `any` as a peer is
@@ -473,6 +567,6 @@ qualified, because `restrict-image-registries` matches plain prefixes
 | 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
 | 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
-| 5 | Boundary integration and egress hostnames (Istio) | not started |
+| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | not started |
 | 6 | Linkerd renderer | not started |
 | 7 | Cilium renderer | not started |
