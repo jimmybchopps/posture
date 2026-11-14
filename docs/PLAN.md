@@ -546,7 +546,7 @@ Decisions made in 5c:
 - [x] Release machinery, as in the policy repo: `CHANGELOG.md`, `test/release/` (tag check,
       notes, `build-dist.sh`, and their cases in `make test`), `make release-check`, and
       `.github/workflows/release.yml` on a `v<version>` tag.
-- [ ] Release 0.1.0: remove `(unreleased)` from its changelog section, merge, tag `v0.1.0`.
+- [x] Release 0.1.0: remove `(unreleased)` from its changelog section, merge, tag `v0.1.0`.
 
 Decisions made in 5d:
 

@@ -4,7 +4,7 @@ Newest first, one `## X.Y.Z` section per release. A version's section stays mark
 `(unreleased)` until the release commit; the release workflow refuses a tag whose section
 still is, or whose version doesn't match `charts/posture/Chart.yaml`.
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 First release. Sets the security posture of the workloads in one namespace, from one set of
 values, with no cluster-scoped objects and no CRDs.
