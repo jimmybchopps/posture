@@ -20,6 +20,7 @@ still is, or whose version doesn't match `charts/posture/Chart.yaml`.
 - New shared convention: `boundary` labels its gateway and waypoint pods
   `app.kubernetes.io/component: ingress-gateway` and `egress-waypoint`, which the gateway
   profiles' exceptions select (CLAUDE.md, "Conventions shared with `boundary` and `policy`").
+- Tested against the policy chart 0.2.0 (was 0.1.0); its PolicyExceptions CRD is unchanged.
 
 ## 0.1.0
 
