@@ -49,9 +49,16 @@ tests:
     template: templates/exceptions/policyexceptions.yaml
     asserts:
       - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: istio-system }
-      - lengthEqual: { path: spec.exceptions, count: 6 }
+      - lengthEqual: { path: spec.exceptions, count: 7 }
       - equal:
-          path: spec.exceptions[4]
+          path: spec.exceptions[1]
+          value:
+            policy: { kind: ValidatingAdmissionPolicy, name: disallow-mesh-opt-out }
+            workloads:
+              - { matchLabels: { app.kubernetes.io/name: istiod }, reason: "Istio labels and annotates istiod to keep it out of the data plane: it's the mesh's control plane" }
+              - { matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "Istio labels and annotates ztunnel to keep it out of the data plane: it is the data plane" }
+      - equal:
+          path: spec.exceptions[5]
           value:
             policy: { kind: ValidatingAdmissionPolicy, name: restrict-seccomp }
             workloads:
@@ -207,6 +214,61 @@ tests:
           value: { to: [{ ipBlock: { cidr: 0.0.0.0/0 } }], ports: [{ port: 443, protocol: TCP }, { port: 80, protocol: TCP }] }
         documentIndex: 1
 
+  - it: istio-ingress excepts the gateway pods from disallow-mesh-opt-out, by component
+    release:
+      namespace: ingress-gateway
+    set:
+      profiles.istio-ingress: {}
+    template: templates/exceptions/policyexceptions.yaml
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: istio-ingress }
+      - equal:
+          path: spec.exceptions
+          value:
+            - policy: { kind: ValidatingAdmissionPolicy, name: disallow-mesh-opt-out }
+              workloads:
+                - matchLabels: { app.kubernetes.io/component: ingress-gateway }
+                  reason: "Istio labels its gateway pods sidecar.istio.io/inject=false: the gateway is the mesh's own proxy, not a workload in it"
+
+  - it: istio-egress excepts the waypoint pods from disallow-mesh-opt-out, by component
+    release:
+      namespace: egress-gateway
+    set:
+      profiles.istio-egress: {}
+    template: templates/exceptions/policyexceptions.yaml
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: istio-egress }
+      - equal:
+          path: spec.exceptions
+          value:
+            - policy: { kind: ValidatingAdmissionPolicy, name: disallow-mesh-opt-out }
+              workloads:
+                - matchLabels: { app.kubernetes.io/component: egress-waypoint }
+                  reason: "Istio labels its waypoint pods sidecar.istio.io/inject=false and istio.io/dataplane-mode=none: the waypoint is the mesh's own proxy, not a workload in it"
+
+  - it: the gateway exception is switched off with enabled false alone
+    release:
+      namespace: ingress-gateway
+    set:
+      profiles.istio-ingress: {}
+      exceptions.ingress-gateway.policies.disallow-mesh-opt-out: { enabled: false }
+    template: templates/exceptions/policyexceptions.yaml
+    asserts:
+      - equal: { path: spec.exceptions, value: [] }
+
+  - it: both gateway profiles together put both gateways under one policy
+    release:
+      namespace: gateways
+    set:
+      profiles: { istio-ingress: {}, istio-egress: {} }
+    template: templates/exceptions/policyexceptions.yaml
+    asserts:
+      - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: "istio-egress,istio-ingress" }
+      - lengthEqual: { path: spec.exceptions, count: 1 }
+      - equal: { path: 'spec.exceptions[0].workloads[0].matchLabels', value: { app.kubernetes.io/component: egress-waypoint } }
+      - equal: { path: 'spec.exceptions[0].workloads[1].matchLabels', value: { app.kubernetes.io/component: ingress-gateway } }
+      - lengthEqual: { path: 'spec.exceptions[0].workloads', count: 2 }
+
   - it: two gateway profiles together render without conflict (both set meshMember false)
     release:
       namespace: gateways
@@ -243,7 +305,7 @@ tests:
     template: templates/exceptions/policyexceptions.yaml
     asserts:
       - equal:
-          path: spec.exceptions[4].workloads
+          path: spec.exceptions[5].workloads
           value: [{ matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart sets no seccompProfile" }]
 
   - it: the user's meshMember wins over a profile's

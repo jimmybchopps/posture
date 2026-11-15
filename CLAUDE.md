@@ -334,9 +334,9 @@ settings only the site knows.
 
   | Profile | Rules | Exceptions |
   |---|---|---|
-  | `istio-system` | istiod: 15012 from every namespace (xDS, CA), 15017 from `apiServerCidrs` (webhooks), 15014 from `monitoring`, egress to `kube-api`; ztunnel: 15020 from `monitoring` | istiod `restrict-seccomp`; ztunnel the six it needs (privilege escalation, capabilities, root, hostPath twice, seccomp) |
-  | `istio-ingress` | every pod: the `ports` from `clientCidrs`; egress to every namespace on 15008 (HBONE to meshed backends; a backend outside the mesh needs its own rule) and to istiod on 15012 | none (`boundary` makes the gateway compliant) |
-  | `istio-egress` | every pod: 15008 from every namespace; egress to `0.0.0.0/0` on the `ports` (`boundary`'s host list at the waypoint is the limit) and to istiod on 15012 | none |
+  | `istio-system` | istiod: 15012 from every namespace (xDS, CA), 15017 from `apiServerCidrs` (webhooks), 15014 from `monitoring`, egress to `kube-api`; ztunnel: 15020 from `monitoring` | istiod `restrict-seccomp`; ztunnel the six it needs (privilege escalation, capabilities, root, hostPath twice, seccomp); both `disallow-mesh-opt-out` (Istio labels them out of the data plane) |
+  | `istio-ingress` | every pod: the `ports` from `clientCidrs`; egress to every namespace on 15008 (HBONE to meshed backends; a backend outside the mesh needs its own rule) and to istiod on 15012 | `disallow-mesh-opt-out` for `ingress-gateway` (selector `component`): Istio labels gateway pods `sidecar.istio.io/inject=false`; `boundary` makes them compliant with everything else |
+  | `istio-egress` | every pod: 15008 from every namespace; egress to `0.0.0.0/0` on the `ports` (`boundary`'s host list at the waypoint is the limit) and to istiod on 15012 | `disallow-mesh-opt-out` for `egress-waypoint` (selector `component`): Istio labels waypoint pods `sidecar.istio.io/inject=false` and `istio.io/dataplane-mode=none`; `boundary` makes them compliant with everything else |
 
 ## Egress to hostnames (`egress.allowedHosts`, Istio ambient)
 
@@ -373,6 +373,22 @@ only the shape below and the gateway conventions.
 - Not the same as `destinations` with `cidrs`: those go directly to site services and never pass
   the gateway; `allowedHosts` always leaves through the gateway and is checked against
   `boundary`'s list.
+
+## Conventions shared with `boundary` and `policy`
+
+posture never reads another chart's values; these defaults are what make the charts fit
+together. Renaming one is supported, but it must be changed in every chart that uses it (in
+posture, by overriding the preset or profile entry that carries it).
+
+| Convention | Default | Used by |
+|---|---|---|
+| Ingress namespace | `ingress-gateway` | boundary, posture's `istio-ingress` profile and `ingress-gateway` source |
+| Egress namespace | `egress-gateway` | boundary, posture's `istio-egress` profile, `egress-gateway` destination, and `allowedHosts` |
+| Default egress gateway name | `default` | boundary, posture's `allowedHosts` (`gateway`) |
+| Gateway pod component label | `app.kubernetes.io/component`: `ingress-gateway` (ingress gateway pods), `egress-waypoint` (egress waypoint pods) | boundary (the Gateways' infrastructure labels), posture's `istio-ingress` and `istio-egress` exceptions |
+| `allowedHosts` shape | see "Egress to hostnames" | boundary, posture |
+| Gateway listener ports | `https` 443/80, `tls-passthrough` 443 | boundary, posture's `istio-ingress` `ports` setting |
+| Exceptions object | `posture-exceptions` (`policy.posture.dev/v1alpha1`) | policy (`paramRef`), posture |
 
 ## Disabled entries
 
@@ -591,7 +607,8 @@ form with real Helm.
 Snapshots of every example's output are committed under `charts/posture/tests/__snapshot__/`;
 review the diff before updating them.
 
-Releasing: set the version in `charts/posture/Chart.yaml`, write its `## X.Y.Z` section in
+Releasing: set the version in `charts/posture/Chart.yaml` (and in the dependency of
+`test/model-probe/Chart.yaml`, which pins it exactly), write its `## X.Y.Z` section in
 `CHANGELOG.md` (marked `(unreleased)` while it's being written), and rehearse with
 `make release-check TAG=v<version>`, which refuses the marker. In the release commit, remove
 the marker; once it's merged to `main` and CI (e2e included) passes, push the tag
@@ -634,6 +651,6 @@ qualified, because `restrict-image-registries` matches plain prefixes
 | 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
 | 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
-| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a–5d done (5d's e2e comes with 5e); release 0.1.0 after 5d |
+| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a–5d done, 0.1.0 released; 0.2.0 (gateway pod exceptions, before 5e) in progress |
 | 6 | Linkerd renderer | not started |
 | 7 | Cilium renderer | not started |

@@ -19,9 +19,9 @@ CURL_IMAGE            := docker.io/curlimages/curl:8.23.0
 MESH                  ?= none
 # The policy chart release posture pins to: its PolicyExceptions CRD (kubeconform, e2e) and its
 # chart package (e2e only). Checksums from the release's SHA256SUMS; bump all three together.
-POLICY_VERSION        := 0.1.0
+POLICY_VERSION        := 0.2.0
 POLICY_CRD_SHA256     := 0b1c6cba6754d0135454d6f7f737f49b7f833f4ee0e7d37315654117821781be
-POLICY_CHART_SHA256   := 47d7dd57c34f45f847e7bceaa087ef3b99608b93565d5870e44667a6d678353a
+POLICY_CHART_SHA256   := a75f49e551cebdd94b6b6d87232b055030fa0d449f7396b11257e173f854a7e4
 
 # Every Helm version this chart supports; `make test-all-helm` runs the suite under each.
 HELM_VERSIONS := $(HELM_MIN_VERSION) $(HELM3_LATEST_VERSION) $(HELM_VERSION)

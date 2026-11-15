@@ -4,6 +4,24 @@ Newest first, one `## X.Y.Z` section per release. A version's section stays mark
 `(unreleased)` until the release commit; the release workflow refuses a tag whose section
 still is, or whose version doesn't match `charts/posture/Chart.yaml`.
 
+## 0.2.0
+
+- The Istio profiles now except Istio's own pods from the policy chart's
+  `disallow-mesh-opt-out`. Istio labels them `sidecar.istio.io/inject=false` (waypoints,
+  istiod, and ztunnel also `istio.io/dataplane-mode=none`) because they are the mesh, not
+  workloads in it:
+  - `istio-ingress`: the gateway pods, selected by `app.kubernetes.io/component:
+    ingress-gateway`;
+  - `istio-egress`: the waypoint pods, selected by `app.kubernetes.io/component:
+    egress-waypoint`;
+  - `istio-system`: `istiod` and `ztunnel`, beside their existing exceptions.
+
+  Each can be switched off with `enabled: false` like any profile entry.
+- New shared convention: `boundary` labels its gateway and waypoint pods
+  `app.kubernetes.io/component: ingress-gateway` and `egress-waypoint`, which the gateway
+  profiles' exceptions select (CLAUDE.md, "Conventions shared with `boundary` and `policy`").
+- Tested against the policy chart 0.2.0 (was 0.1.0); its PolicyExceptions CRD is unchanged.
+
 ## 0.1.0
 
 First release. Sets the security posture of the workloads in one namespace, from one set of

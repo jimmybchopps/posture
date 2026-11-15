@@ -572,13 +572,32 @@ Decisions made in 5d:
 
 ### 5e. Boundary integration
 
+Before the integration (posture 0.2.0):
+
+- [x] `disallow-mesh-opt-out` exceptions for Istio's own pods, which Istio labels out of the
+      data plane (`sidecar.istio.io/inject=false`, and `istio.io/dataplane-mode=none` on
+      waypoints, istiod, and ztunnel): `istio-ingress` for `ingress-gateway` and `istio-egress`
+      for `egress-waypoint` (both selector `component`, the label `boundary` sets), and
+      `istio-system` for istiod and ztunnel. Found in the charts (istiod 1.31.1, ztunnel
+      1.30.8), not left to a first run.
+- [x] The shared component convention in CLAUDE.md ("Conventions shared with `boundary` and
+      `policy`"), unit tests, and the 0.2.0 changelog section.
+- [x] e2e enforces `disallow-mesh-opt-out` (the other optional policies stay at audit), so
+      istiod and ztunnel start only through the `istio-system` profile's exceptions.
+- [x] Pin the policy chart 0.2.0 (`POLICY_VERSION`; its CRD is unchanged, so no rendered
+      output changes).
+- [x] e2e under `MESH=istio` with the policy enforced, then release 0.2.0.
+
+The integration:
+
 - [ ] The e2e harness installs `boundary` after Istio, with posture's gateway profiles in its
       two namespaces first.
 - [ ] e2e: an approved host connects through the waypoint; a host `boundary` doesn't list is
       refused at the waypoint; a namespace that didn't list the host can't reach it; a direct
       path that skips the gateway is blocked by NetworkPolicy.
-- [ ] Gateway and waypoint pods are admitted with an empty `posture-exceptions` (with the
-      policy chart installed).
+- [ ] Gateway and waypoint pods are admitted with only their profile's
+      `disallow-mesh-opt-out` exception (with the policy chart installed, that policy
+      enforced).
 - [ ] Resolve the remaining accepted failure (`deny prometheus/prometheus -> x.intruder:8081`,
       an egress port limit into a namespace without posture; see "Accepted failures" under 1c).
 
