@@ -586,7 +586,7 @@ Before the integration (posture 0.2.0):
       istiod and ztunnel start only through the `istio-system` profile's exceptions.
 - [x] Pin the policy chart 0.2.0 (`POLICY_VERSION`; its CRD is unchanged, so no rendered
       output changes).
-- [ ] e2e under `MESH=istio` with the policy enforced, then release 0.2.0.
+- [x] e2e under `MESH=istio` with the policy enforced, then release 0.2.0.
 
 The integration:
 

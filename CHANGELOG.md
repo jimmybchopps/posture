@@ -4,7 +4,7 @@ Newest first, one `## X.Y.Z` section per release. A version's section stays mark
 `(unreleased)` until the release commit; the release workflow refuses a tag whose section
 still is, or whose version doesn't match `charts/posture/Chart.yaml`.
 
-## 0.2.0 (unreleased)
+## 0.2.0
 
 - The Istio profiles now except Istio's own pods from the policy chart's
   `disallow-mesh-opt-out`. Istio labels them `sidecar.istio.io/inject=false` (waypoints,
