@@ -30,7 +30,10 @@
 #      istio-egress   the egress waypoint's namespace (egress-gateway). Settings: ports (default
 #                     443 and 80); it may reach any address on them, limited by boundary's host
 #                     list at the waypoint.
-#    All three set meshMember: false. Two profiles that set the same value differently fail.
+#    All three set meshMember: false, and except Istio's own pods (labelled out of the data
+#    plane) from disallow-mesh-opt-out: istiod and ztunnel, and the gateway and waypoint pods
+#    boundary labels app.kubernetes.io/component: ingress-gateway or egress-waypoint. Two
+#    profiles that set the same value differently fail.
 profiles: {}
 #  istio-system:
 #    settings:

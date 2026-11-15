@@ -189,11 +189,17 @@ meshMember: false
 exceptions:
   istiod:
     policies:
+      disallow-mesh-opt-out:
+        kind: ValidatingAdmissionPolicy
+        reason: "Istio labels and annotates istiod to keep it out of the data plane: it's the mesh's control plane"
       restrict-seccomp:
         kind: ValidatingAdmissionPolicy
         reason: "the istiod chart sets no seccompProfile"
   ztunnel:
     policies:
+      disallow-mesh-opt-out:
+        kind: ValidatingAdmissionPolicy
+        reason: "Istio labels and annotates ztunnel to keep it out of the data plane: it is the data plane"
       disallow-privilege-escalation:
         kind: ValidatingAdmissionPolicy
         reason: "ztunnel needs allowPrivilegeEscalation for its added capabilities"
@@ -237,11 +243,21 @@ istio-ingress: the ingress gateway's namespace (ingress-gateway). Clients connec
 listener ports from clientCidrs; the gateway reaches meshed backends as HBONE on 15008, so it
 never needs each application's ports (a backend outside the mesh needs its own egress rule),
 and istiod on 15012 for xDS. The gateway is Istio's own proxy, not in the mesh data plane:
-meshMember is false. No exceptions: the boundary chart makes the gateway pods compliant.
+meshMember is false. One exception, disallow-mesh-opt-out, for the pods the boundary chart
+labels app.kubernetes.io/component: ingress-gateway: Istio labels its gateway pods
+sidecar.istio.io/inject=false, which is what makes the gateway the mesh's own proxy. Everything
+else in the baseline, boundary makes compliant through the Gateway's infrastructure parameters.
 Settings: ports (default 443, 80), clientCidrs (default the private ranges).
 */}}
 {{- define "posture.profile.istio-ingress" -}}
 meshMember: false
+exceptions:
+  ingress-gateway:              # the convention shared with boundary
+    selector: component
+    policies:
+      disallow-mesh-opt-out:
+        kind: ValidatingAdmissionPolicy
+        reason: "Istio labels its gateway pods sidecar.istio.io/inject=false: the gateway is the mesh's own proxy, not a workload in it"
 ingress:
   any:
     from:
@@ -263,11 +279,22 @@ egress:
 istio-egress: the egress waypoint's namespace (egress-gateway). Every namespace reaches it as
 HBONE on 15008; it forwards outside the cluster on the listed ports, to any address: the
 boundary chart's host list at the waypoint is the limit on where it goes. istiod on 15012 for
-xDS. meshMember is false (Istio's own proxy). No exceptions: boundary makes it compliant.
+xDS. meshMember is false (Istio's own proxy). One exception, disallow-mesh-opt-out, for the
+pods the boundary chart labels app.kubernetes.io/component: egress-waypoint: Istio labels its
+waypoint pods sidecar.istio.io/inject=false and istio.io/dataplane-mode=none, which is what
+makes the waypoint the mesh's own proxy. Everything else in the baseline, boundary makes
+compliant through the Gateway's infrastructure parameters.
 Settings: ports (default 443, 80).
 */}}
 {{- define "posture.profile.istio-egress" -}}
 meshMember: false
+exceptions:
+  egress-waypoint:              # the convention shared with boundary
+    selector: component
+    policies:
+      disallow-mesh-opt-out:
+        kind: ValidatingAdmissionPolicy
+        reason: "Istio labels its waypoint pods sidecar.istio.io/inject=false and istio.io/dataplane-mode=none: the waypoint is the mesh's own proxy, not a workload in it"
 ingress:
   any:
     from:
