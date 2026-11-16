@@ -637,6 +637,9 @@ Decisions made in 5e:
 - boundary in e2e runs with `mtls.mode: inherit`: mesh-wide mTLS is boundary's to test, and a
   mesh-wide STRICT would refuse the plaintext client's baseline connection to shop that the
   NetworkPolicy deny relies on.
+- The k3d cluster starts with k3s's bundled Gateway API CRDs disabled
+  (`--disable=gateway-api-crd`, as in boundary's harness): they conflict with the pinned
+  release that `install_gateway_api` applies.
 - `restart_workloads` leaves the Deployments Istio generates for Gateways alone: Istio owns
   them, and no check depends on their pooled connections.
 - Follow-ups in boundary, not changed from here: bump its posture pin to 0.3.0; its

@@ -43,8 +43,10 @@ summary() {
 # ---------------------------------------------------------------------------------------------
 # Cluster
 
+# k3s's bundled Gateway API CRDs are disabled: under MESH=istio the harness installs the pinned
+# release (install_gateway_api), and k3s's own copy conflicts with it.
 create_cluster() {
-  log "creating k3d cluster ${CLUSTER} (${K3S_IMAGE}, flannel and k3s network policy disabled)"
+  log "creating k3d cluster ${CLUSTER} (${K3S_IMAGE}, flannel, k3s network policy, and k3s's Gateway API CRDs disabled)"
   quiet "$K3D" cluster create "$CLUSTER" \
     --image "$K3S_IMAGE" \
     --agents 1 \
@@ -52,6 +54,7 @@ create_cluster() {
     --k3s-arg '--disable-network-policy@server:*' \
     --k3s-arg '--cluster-cidr=192.168.0.0/16@server:*' \
     --k3s-arg '--disable=traefik@server:*' \
+    --k3s-arg '--disable=gateway-api-crd@server:*' \
     --wait
 }
 
