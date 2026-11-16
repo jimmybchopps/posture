@@ -1,0 +1,9 @@
+# posture in client (the boundary scenario), a namespace outside the mesh standing in for
+# clients outside the cluster: egress only to the ingress gateways, on their listener ports.
+# The scenario installs it with mesh: none (its pods aren't in the data plane).
+egress:
+  x:
+    to:
+      any:                      # every gateway pod
+        namespace: ingress-gateway
+        ports: [443, 80]

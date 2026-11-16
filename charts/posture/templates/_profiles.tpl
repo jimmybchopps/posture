@@ -182,6 +182,10 @@ root namespace, where namespace-wide authorization and mTLS objects would apply 
 meshMember is false. istio-cni belongs in kube-system, which admission policies never
 evaluate. ztunnel reaches istiod within the namespace (allowSameNamespace); its HBONE runs
 inside the application pods' network namespaces, so it needs no rule here.
+Exceptions: every policy the policy chart turns on by default (audit-default ones included, so a
+site enforcing all of them isn't bitten) that istiod or ztunnel fail and Istio's charts have no
+setting to meet. What a site can set at install (images pinned by digest, a memory limit) isn't
+excepted: require-image-digest and require-resource-limits are the site's to meet.
 Settings: apiServerCidrs (required), where the API server calls istiod's webhooks from.
 */}}
 {{- define "posture.profile.istio-system" -}}
@@ -189,14 +193,23 @@ meshMember: false
 exceptions:
   istiod:
     policies:
+      disallow-automount-service-account-token:
+        kind: ValidatingAdmissionPolicy
+        reason: "istiod watches the Kubernetes API with its service account token, and the istiod chart has no setting for automountServiceAccountToken"
       disallow-mesh-opt-out:
         kind: ValidatingAdmissionPolicy
         reason: "Istio labels and annotates istiod to keep it out of the data plane: it's the mesh's control plane"
       restrict-seccomp:
         kind: ValidatingAdmissionPolicy
         reason: "the istiod chart sets no seccompProfile"
+      require-probes:
+        kind: ValidatingAdmissionPolicy
+        reason: "the istiod chart sets a readiness probe only, with no setting for a liveness probe"
   ztunnel:
     policies:
+      disallow-automount-service-account-token:
+        kind: ValidatingAdmissionPolicy
+        reason: "the ztunnel chart has no setting for automountServiceAccountToken"
       disallow-mesh-opt-out:
         kind: ValidatingAdmissionPolicy
         reason: "Istio labels and annotates ztunnel to keep it out of the data plane: it is the data plane"
@@ -218,6 +231,9 @@ exceptions:
       restrict-seccomp:
         kind: ValidatingAdmissionPolicy
         reason: "the ztunnel chart sets no seccompProfile"
+      require-probes:
+        kind: ValidatingAdmissionPolicy
+        reason: "the ztunnel chart sets a readiness probe only, with no setting for a liveness probe"
 ingress:
   istiod:
     from:
@@ -243,10 +259,11 @@ istio-ingress: the ingress gateway's namespace (ingress-gateway). Clients connec
 listener ports from clientCidrs; the gateway reaches meshed backends as HBONE on 15008, so it
 never needs each application's ports (a backend outside the mesh needs its own egress rule),
 and istiod on 15012 for xDS. The gateway is Istio's own proxy, not in the mesh data plane:
-meshMember is false. One exception, disallow-mesh-opt-out, for the pods the boundary chart
-labels app.kubernetes.io/component: ingress-gateway: Istio labels its gateway pods
-sidecar.istio.io/inject=false, which is what makes the gateway the mesh's own proxy. Everything
-else in the baseline, boundary makes compliant through the Gateway's infrastructure parameters.
+meshMember is false. Two exceptions for the pods the boundary chart labels
+app.kubernetes.io/component: ingress-gateway: disallow-mesh-opt-out (Istio labels its gateway
+pods sidecar.istio.io/inject=false, which is what makes the gateway the mesh's own proxy) and
+require-probes (audit by default; Istio sets no liveness probe and has no setting for one).
+Everything else boundary makes compliant through the Gateway's infrastructure parameters.
 Settings: ports (default 443, 80), clientCidrs (default the private ranges).
 */}}
 {{- define "posture.profile.istio-ingress" -}}
@@ -258,6 +275,9 @@ exceptions:
       disallow-mesh-opt-out:
         kind: ValidatingAdmissionPolicy
         reason: "Istio labels its gateway pods sidecar.istio.io/inject=false: the gateway is the mesh's own proxy, not a workload in it"
+      require-probes:
+        kind: ValidatingAdmissionPolicy
+        reason: "Istio's gateway pods have startup and readiness probes only, with no setting for a liveness probe"
 ingress:
   any:
     from:
@@ -279,11 +299,12 @@ egress:
 istio-egress: the egress waypoint's namespace (egress-gateway). Every namespace reaches it as
 HBONE on 15008; it forwards outside the cluster on the listed ports, to any address: the
 boundary chart's host list at the waypoint is the limit on where it goes. istiod on 15012 for
-xDS. meshMember is false (Istio's own proxy). One exception, disallow-mesh-opt-out, for the
-pods the boundary chart labels app.kubernetes.io/component: egress-waypoint: Istio labels its
+xDS. meshMember is false (Istio's own proxy). Two exceptions for the pods the boundary chart
+labels app.kubernetes.io/component: egress-waypoint: disallow-mesh-opt-out (Istio labels its
 waypoint pods sidecar.istio.io/inject=false and istio.io/dataplane-mode=none, which is what
-makes the waypoint the mesh's own proxy. Everything else in the baseline, boundary makes
-compliant through the Gateway's infrastructure parameters.
+makes the waypoint the mesh's own proxy) and require-probes (audit by default; Istio sets no
+liveness probe and has no setting for one). Everything else boundary makes compliant through
+the Gateway's infrastructure parameters.
 Settings: ports (default 443, 80).
 */}}
 {{- define "posture.profile.istio-egress" -}}
@@ -295,6 +316,9 @@ exceptions:
       disallow-mesh-opt-out:
         kind: ValidatingAdmissionPolicy
         reason: "Istio labels its waypoint pods sidecar.istio.io/inject=false and istio.io/dataplane-mode=none: the waypoint is the mesh's own proxy, not a workload in it"
+      require-probes:
+        kind: ValidatingAdmissionPolicy
+        reason: "Istio's waypoint pods have startup and readiness probes only, with no setting for a liveness probe"
 ingress:
   any:
     from:

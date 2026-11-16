@@ -1,0 +1,7 @@
+# posture in shop (the boundary scenario): api serves through the https ingress gateway
+# (the ingress-gateway source: every pod in ingress-gateway) on 8080, and nothing else reaches
+# it.
+ingress:
+  api:
+    sources:
+      ingress-gateway: [8080]

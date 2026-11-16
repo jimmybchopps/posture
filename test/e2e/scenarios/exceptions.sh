@@ -16,6 +16,8 @@
 setup() {
   install_policy_chart
   namespace apps
+  # The test pods' own service account (disallow-default-service-account).
+  quiet "$KUBECTL" -n apps create serviceaccount test-pod
 }
 
 install() {
@@ -25,8 +27,9 @@ install() {
 
 checks() { :; }   # no connection checks
 
-# test_pod <name> <labels> <hostpath|root>: a bare Pod (agnhost pause) that meets every
-# baked-in policy except its one variant.
+# test_pod <name> <labels> <hostpath|root>: a bare Pod (agnhost porter, HTTP on 8080) that meets
+# every policy the policy chart turns on by default (e2e enforces them all) except its one
+# variant.
 test_pod() {
   local name=$1 labels=$2 variant=$3 user=65532 nonroot=true volumes="" mounts=""
   case $variant in
@@ -48,6 +51,8 @@ metadata:
   namespace: apps
   labels: { ${labels} }
 spec:
+  serviceAccountName: test-pod
+  automountServiceAccountToken: false
   terminationGracePeriodSeconds: 1
   securityContext:
     runAsNonRoot: ${nonroot}
@@ -56,10 +61,22 @@ spec:
   containers:
     - name: app
       image: ${AGNHOST_IMAGE}
-      args: [pause]
+      args: [porter]
+      env:
+        - { name: SERVE_PORT_8080, value: ${name} }
+      readinessProbe:
+        tcpSocket: { port: 8080 }
+        periodSeconds: 2
+      livenessProbe:
+        tcpSocket: { port: 8080 }
+        periodSeconds: 10
       securityContext:
         allowPrivilegeEscalation: false
-        capabilities: { drop: [ALL] }${mounts}${volumes}
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      resources:
+        requests: { cpu: 10m, memory: 32Mi }
+        limits: { memory: 64Mi }${mounts}${volumes}
 YAML
 }
 
@@ -68,7 +85,7 @@ extra() {
   admitted "[exceptions] excepted from disallow-host-path and restrict-volume-types: apps/node-agent runs" \
     apps node-agent <<<"$(test_pod node-agent "app.kubernetes.io/name: node-agent" hostpath)"
   admitted "[exceptions] excepted from require-run-as-non-root (by instance label): apps/legacy runs" \
-    apps legacy <<<"$(test_pod legacy "app.kubernetes.io/instance: legacy" root)"
+    apps legacy <<<"$(test_pod legacy "app.kubernetes.io/name: legacy-app, app.kubernetes.io/instance: legacy" root)"
   refused "[exceptions] not excepted: apps/intruder is refused (disallow-host-path or restrict-volume-types)" \
     disallow-host-path restrict-volume-types <<<"$(test_pod intruder "app.kubernetes.io/name: intruder" hostpath)"
 }

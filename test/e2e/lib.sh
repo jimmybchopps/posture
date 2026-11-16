@@ -76,17 +76,40 @@ install_cni() {
   info "Calico and CoreDNS are ready"
 }
 
+# The Gateway API CRDs (standard channel), boundary's prerequisite. Installed before Istio, so
+# istiod picks them up.
+install_gateway_api() {
+  log "installing the Gateway API CRDs ($(basename "$(dirname "$GATEWAY_API_CRDS")"), standard)"
+  quiet "$KUBECTL" apply --server-side -f "$GATEWAY_API_CRDS"
+  # The file also holds a ValidatingAdmissionPolicy and its binding, which have no Established
+  # condition, so wait on the CRDs it defines by name.
+  local crds
+  crds=$("$KUBECTL" get -f "$GATEWAY_API_CRDS" -o name | grep '^customresourcedefinition')
+  [[ -n $crds ]] || die "no CRDs found in $GATEWAY_API_CRDS"
+  # shellcheck disable=SC2086 # one name per word
+  quiet "$KUBECTL" wait --for=condition=Established $crds --timeout=60s
+  info "Gateway API CRDs established"
+}
+
 # Istio ambient, under the policy chart (installed first, see install_policy_chart): istiod and
 # ztunnel in istio-system, whose posture (profile istio-system) install_platform_posture has
 # already rendered; istio-cni in kube-system (required on GKE, and Istio's preferred
 # alternative to istio-system), which the policies never evaluate.
+#
+# Installed as a site enforcing the policy chart's defaults would: images by digest
+# (require-image-digest; global.proxy.image is the gateways' and waypoints' proxy) and a memory
+# limit beside the charts' requests (require-resource-limits). Those are the site's to set; the
+# istio-system profile excepts only what Istio's charts have no setting for.
 install_istio() {
   log "installing Istio ${ISTIO_VERSION} (ambient)"
   quiet "$HELM" repo add istio https://blob.istio.io/istio-release/charts --force-update
   istio_chart istio-system istio-base base
-  istio_chart istio-system istiod     istiod  --set profile=ambient
+  istio_chart istio-system istiod     istiod  --set profile=ambient \
+    --set "image=${ISTIO_PILOT_IMAGE}" --set "global.proxy.image=${ISTIO_PROXY_IMAGE}" \
+    --set resources.limits.memory=2Gi
   istio_chart kube-system  istio-cni  cni     --set profile=ambient
-  istio_chart istio-system ztunnel    ztunnel
+  istio_chart istio-system ztunnel    ztunnel \
+    --set "image=${ISTIO_ZTUNNEL_IMAGE}" --set resources.limits.memory=1Gi
   quiet "$KUBECTL" -n kube-system rollout status daemonset/istio-cni-node --timeout=300s ||
     { refused_pods kube-system; return 1; }
   quiet "$KUBECTL" -n istio-system rollout status daemonset/ztunnel --timeout=300s ||
@@ -108,22 +131,97 @@ istio_chart() { # istio_chart <namespace> <release> <chart> [helm args...]
 # The external host: a container on the k3d Docker network, outside the cluster, on an address
 # inside the private ranges (172.16.0.0/12), so the postgres/sso presets match it for real.
 
+#
+# Under MESH=istio a second one, EXT_TLS (agnhost netexec), serves HTTPS on 443 with a
+# certificate for *.e2e.test from the run's CA, for egress through boundary's waypoint
+# (egress.allowedHosts). CoreDNS resolves the boundary scenario's names under e2e.test to it
+# (external_dns).
+
 EXT_IP=""
+EXT_TLS=""
 
 start_external() {
   log "starting the external host"
-  docker rm -f "${CLUSTER}-external" >/dev/null 2>&1 || true
+  stop_external
   docker run -d --name "${CLUSTER}-external" --network "k3d-${CLUSTER}" \
     -e SERVE_PORT_443=external-443 -e SERVE_PORT_5432=external-5432 \
     -e SERVE_PORT_8443=external-8443 -e SERVE_PORT_8080=external-8080 \
     "$AGNHOST_IMAGE" porter >/dev/null
-  EXT_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CLUSTER}-external")
+  EXT_IP=$(container_ip external)
   [[ -n $EXT_IP ]] || die "the external host has no IP address"
   printf 'external host: %s\n' "$EXT_IP"
+  if [[ $MESH == istio ]]; then
+    make_cert external "*.e2e.test"
+    chmod 644 "$CERTS/external.key"
+    quiet docker run -d --name "${CLUSTER}-ext-tls" --network "k3d-${CLUSTER}" \
+      -v "$CERTS:/certs:ro" "$AGNHOST_IMAGE" netexec --http-port=443 --udp-port=-1 \
+      --tls-cert-file=/certs/external.crt --tls-private-key-file=/certs/external.key
+    EXT_TLS=$(container_ip ext-tls)
+    [[ -n $EXT_TLS ]] || die "the TLS external host has no IP address"
+    printf 'TLS external host: %s\n' "$EXT_TLS"
+    external_dns
+  fi
 }
 
 stop_external() {
-  docker rm -f "${CLUSTER}-external" >/dev/null 2>&1 || true
+  docker rm -f "${CLUSTER}-external" "${CLUSTER}-ext-tls" >/dev/null 2>&1 || true
+}
+
+container_ip() {
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CLUSTER}-$1"
+}
+
+# external_dns: a CoreDNS server block for e2e.test (k3s imports coredns-custom's *.server
+# keys), resolving the boundary scenario's host names to EXT_TLS.
+external_dns() {
+  local h hosts=""
+  for h in allowed-tls denied-tls; do hosts+="
+          ${EXT_TLS} ${h}.e2e.test"; done
+  "$KUBECTL" apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: coredns-custom, namespace: kube-system }
+data:
+  e2e.server: |
+    e2e.test:53 {
+        errors
+        hosts {${hosts}
+        }
+    }
+EOF
+  quiet "$KUBECTL" -n kube-system rollout restart deployment/coredns
+  quiet "$KUBECTL" -n kube-system rollout status deployment/coredns --timeout=120s
+  info "CoreDNS resolves allowed-tls.e2e.test and denied-tls.e2e.test to the TLS external host"
+}
+
+# ---------------------------------------------------------------------------------------------
+# Certificates: a CA and certificates signed by it, in CERTS (a directory run.sh creates and
+# removes).
+
+make_ca() {
+  [[ -f $CERTS/ca.crt ]] && return 0
+  quiet openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=posture-e2e-ca" \
+    -keyout "$CERTS/ca.key" -out "$CERTS/ca.crt"
+}
+
+# make_cert <name> <hostname>...: CERTS/<name>.crt and .key for those hostnames.
+make_cert() {
+  local name=$1
+  shift
+  make_ca
+  local san="" host
+  for host in "$@"; do san+="${san:+,}DNS:${host}"; done
+  printf 'subjectAltName=%s\n' "$san" >"$CERTS/$name.ext"
+  quiet openssl req -newkey rsa:2048 -nodes -subj "/CN=$1/O=posture-e2e" \
+    -keyout "$CERTS/$name.key" -out "$CERTS/$name.csr"
+  quiet openssl x509 -req -in "$CERTS/$name.csr" -CA "$CERTS/ca.crt" -CAkey "$CERTS/ca.key" \
+    -set_serial "0x$(openssl rand -hex 8)" -days 2 -extfile "$CERTS/$name.ext" -out "$CERTS/$name.crt"
+}
+
+# tls_secret <namespace> <secret> <cert name>: a kubernetes.io/tls Secret from CERTS/<cert>.
+tls_secret() {
+  "$KUBECTL" -n "$1" create secret tls "$2" --cert="$CERTS/$3.crt" --key="$CERTS/$3.key" \
+    --dry-run=client -o yaml | quiet "$KUBECTL" apply -f -
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -148,11 +246,13 @@ namespace() {
 
 # workload <namespace> <name> <port>...
 # A Deployment whose pods are labeled app.kubernetes.io/name=<name> and run as the
-# ServiceAccount <name>, with a server container (agnhost porter, HTTP on every port, readiness
-# probe on the first) and a client container (curl), plus a Service <name>.<namespace> on the
-# same ports. It meets the policy chart's baseline (non-root, RuntimeDefault seccomp, no
-# privilege escalation, every capability dropped), under every mesh, so it's admitted whether
-# or not the policy chart is installed.
+# ServiceAccount <name>, with a server container (agnhost porter, HTTP on every port, probes on
+# the first) and a client container (curl), plus a Service <name>.<namespace> on the same
+# ports. It meets every policy the policy chart turns on by default, under every mesh (the
+# baseline: non-root, RuntimeDefault seccomp, no privilege escalation, every capability
+# dropped; and the optional ones: images by digest, a read-only root filesystem, requests and a
+# memory limit, readiness and liveness probes, no service account token, its own service
+# account), so it's admitted whether or not the policy chart is installed.
 #
 # For an impostor, override with environment variables:
 #   LABEL=<name>  pods carry app.kubernetes.io/name=<LABEL> instead; no Service is created
@@ -200,6 +300,7 @@ spec:
       labels: { app.kubernetes.io/name: ${label}, e2e.posture.dev/deployment: ${name} }
     spec:
       serviceAccountName: ${sa}
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 1
       securityContext:
         runAsNonRoot: true
@@ -213,15 +314,36 @@ spec:
           readinessProbe:
             tcpSocket: { port: $1 }
             periodSeconds: 2
+          livenessProbe:
+            tcpSocket: { port: $1 }
+            periodSeconds: 10
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
         - name: client
           image: ${CURL_IMAGE}
           command: [sleep, infinity]
+          readinessProbe:
+            exec: { command: ["true"] }
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["true"] }
+            periodSeconds: 10
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+      volumes:
+        - { name: tmp, emptyDir: {} }
 ${service}
 EOF
 }
@@ -239,18 +361,20 @@ wait_ready() {
   done
 }
 
-# install_posture <namespace> <example file under examples/> [helm args...]
+# install_posture <namespace> <example file under examples/, or a path from the repo root> [helm args...]
 # Extra arguments go to helm install after the example, e.g. --set networkPolicy.ingress=false.
+# A path with a slash is taken from the repo root, e.g. test/e2e/values/intruder.yaml.
 # Under the policy chart, the namespace already has a posture release (posture_first), so this
 # upgrades it; --reset-values keeps nothing from that first release.
 install_posture() {
   local ns=$1 example=$2
   shift 2
-  local action=(install)
+  local action=(install) file="examples/${example}"
+  if [[ $example == */* ]]; then file=$example; fi
   if "$HELM" status posture -n "$ns" >/dev/null 2>&1; then action=(upgrade --reset-values); fi
   quiet "$HELM" "${action[@]}" posture "$ROOT/charts/posture" -n "$ns" \
-    -f "$ROOT/examples/${example}" --set "mesh=${MESH}" "$@" --wait
-  info "posture installed in ${ns} (examples/${example}${*:+ $*})"
+    -f "$ROOT/${file}" --set "mesh=${MESH}" "$@" --wait
+  info "posture installed in ${ns} (${file}${*:+ $*})"
 }
 
 # restart_workloads: replaces every pod in the scenario's namespaces and waits until only the
@@ -259,15 +383,17 @@ install_posture() {
 # NetworkPolicy only judges new connections, so without this every in-cluster deny would still
 # connect. New pods have new addresses and no pooled connections. Restarting ztunnel itself
 # would also drop the pool, but it briefly breaks all meshed traffic, which a deny check would
-# count as a pass.
+# count as a pass. The Deployments Istio generates for boundary's gateways and waypoints are
+# left alone: Istio owns them, and no check depends on their pooled connections.
 restart_workloads() {
   local ns d
   for ns in "${NAMESPACES[@]}"; do
-    has_deployments "$ns" || continue
-    quiet "$KUBECTL" -n "$ns" rollout restart deployment
+    for d in $(own_deployments "$ns"); do
+      quiet "$KUBECTL" -n "$ns" rollout restart "$d"
+    done
   done
   for ns in "${NAMESPACES[@]}"; do
-    for d in $("$KUBECTL" -n "$ns" get deployment -o name); do
+    for d in $(own_deployments "$ns"); do
       quiet "$KUBECTL" -n "$ns" rollout status "$d" --timeout=180s
     done
   done
@@ -283,6 +409,12 @@ restart_workloads() {
   done
   [[ -z $terminating ]] || die "old pods are still terminating after the restart"
   info "workloads restarted (drops connections ztunnel pooled during the baseline)"
+}
+
+# own_deployments <namespace>: the scenario's Deployments, not the ones Istio generates for
+# Gateways (labeled gateway.networking.k8s.io/gateway-name).
+own_deployments() {
+  "$KUBECTL" -n "$1" get deployment -l '!gateway.networking.k8s.io/gateway-name' -o name
 }
 
 cleanup_namespaces() {
@@ -317,10 +449,25 @@ expect() { # expect <allow|deny> <ns>/<workload> <host>:<port>
   esac
 }
 
-connect() { # connect <ns>/<workload> <host>:<port>; succeeds on an HTTP response
-  local ns=${1%%/*} name=${1#*/}
+# connect <ns>/<workload> <host>:<port> | https://<host>:<port>; succeeds on an HTTP response.
+# HTTPS skips certificate verification (-k): the checks are about where traffic may go.
+connect() {
+  local ns=${1%%/*} name=${1#*/} url=$2
+  [[ $url == *://* ]] || url="http://${url}"
   "$KUBECTL" -n "$ns" exec "deploy/${name}" -c client -- \
-    curl -sS -o /dev/null -m 3 "http://$2/" >/dev/null 2>&1
+    curl -sS -k -o /dev/null -m 3 "${url}/" >/dev/null 2>&1
+}
+
+# check <message> <command...>: records PASS if the command succeeds (retried for about 30
+# seconds), FAIL otherwise. For checks that aren't connections.
+check() {
+  local message=$1 _attempt
+  shift
+  for _attempt in $(seq 1 15); do
+    if "$@" >/dev/null 2>&1; then record PASS "$message"; return 0; fi
+    sleep 2
+  done
+  record FAIL "$message"
 }
 
 retry_until() { # retry_until <want: up|down> <from> <to>

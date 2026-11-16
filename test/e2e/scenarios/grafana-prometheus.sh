@@ -3,6 +3,13 @@
 # examples/prometheus.yaml in "prometheus": the ingress gateway (namespace ingress-gateway, the
 # ingress-gateway preset's default) and Prometheus into Grafana, Grafana out to
 # postgres and sso on the external host, Prometheus scraping other namespaces.
+#
+# intruder: under MESH=none it has no posture of its own (only posture-exceptions), so
+# Prometheus's egress NetworkPolicy alone limits the scrape to the listed ports. Under
+# MESH=istio that can't hold: between meshed pods NetworkPolicy sees only HBONE on 15008, and
+# ambient has no source-side port check, so an egress port limit holds only where the
+# destination enforces it. intruder then gets the posture every namespace has under the policy
+# chart (test/e2e/values/intruder.yaml), whose AuthorizationPolicy refuses 8081.
 
 setup() {
   namespace grafana
@@ -24,6 +31,7 @@ install() {
     install_posture grafana grafana.yaml
   fi
   install_posture prometheus prometheus.yaml
+  if [[ $MESH == istio ]]; then install_posture intruder test/e2e/values/intruder.yaml; fi
 }
 
 checks() {
@@ -43,9 +51,9 @@ checks() {
   expect deny grafana/renderer "${EXT_IP}:5432"              # the rule is for grafana only
   expect deny grafana/grafana x.intruder:9100                # default-deny egress
 
-  # Prometheus scraping a namespace without posture
+  # Prometheus scraping intruder (no posture of its own under MESH=none; see the top)
   expect allow prometheus/prometheus x.intruder:9100         # listed metrics port
-  expect deny prometheus/prometheus x.intruder:8081          # not a listed port
+  expect deny prometheus/prometheus x.intruder:8081          # not a listed port (istio: refused at intruder)
   expect deny prometheus/other x.intruder:9100               # the rule is for prometheus only
 }
 

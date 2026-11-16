@@ -49,9 +49,16 @@ tests:
     template: templates/exceptions/policyexceptions.yaml
     asserts:
       - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: istio-system }
-      - lengthEqual: { path: spec.exceptions, count: 7 }
+      - lengthEqual: { path: spec.exceptions, count: 9 }
       - equal:
-          path: spec.exceptions[1]
+          path: spec.exceptions[0]
+          value:
+            policy: { kind: ValidatingAdmissionPolicy, name: disallow-automount-service-account-token }
+            workloads:
+              - { matchLabels: { app.kubernetes.io/name: istiod }, reason: "istiod watches the Kubernetes API with its service account token, and the istiod chart has no setting for automountServiceAccountToken" }
+              - { matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart has no setting for automountServiceAccountToken" }
+      - equal:
+          path: spec.exceptions[2]
           value:
             policy: { kind: ValidatingAdmissionPolicy, name: disallow-mesh-opt-out }
             workloads:
@@ -59,6 +66,13 @@ tests:
               - { matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "Istio labels and annotates ztunnel to keep it out of the data plane: it is the data plane" }
       - equal:
           path: spec.exceptions[5]
+          value:
+            policy: { kind: ValidatingAdmissionPolicy, name: require-probes }
+            workloads:
+              - { matchLabels: { app.kubernetes.io/name: istiod }, reason: "the istiod chart sets a readiness probe only, with no setting for a liveness probe" }
+              - { matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart sets a readiness probe only, with no setting for a liveness probe" }
+      - equal:
+          path: spec.exceptions[7]
           value:
             policy: { kind: ValidatingAdmissionPolicy, name: restrict-seccomp }
             workloads:
@@ -214,7 +228,7 @@ tests:
           value: { to: [{ ipBlock: { cidr: 0.0.0.0/0 } }], ports: [{ port: 443, protocol: TCP }, { port: 80, protocol: TCP }] }
         documentIndex: 1
 
-  - it: istio-ingress excepts the gateway pods from disallow-mesh-opt-out, by component
+  - it: istio-ingress excepts the gateway pods from disallow-mesh-opt-out and require-probes, by component
     release:
       namespace: ingress-gateway
     set:
@@ -229,8 +243,12 @@ tests:
               workloads:
                 - matchLabels: { app.kubernetes.io/component: ingress-gateway }
                   reason: "Istio labels its gateway pods sidecar.istio.io/inject=false: the gateway is the mesh's own proxy, not a workload in it"
+            - policy: { kind: ValidatingAdmissionPolicy, name: require-probes }
+              workloads:
+                - matchLabels: { app.kubernetes.io/component: ingress-gateway }
+                  reason: "Istio's gateway pods have startup and readiness probes only, with no setting for a liveness probe"
 
-  - it: istio-egress excepts the waypoint pods from disallow-mesh-opt-out, by component
+  - it: istio-egress excepts the waypoint pods from disallow-mesh-opt-out and require-probes, by component
     release:
       namespace: egress-gateway
     set:
@@ -245,13 +263,30 @@ tests:
               workloads:
                 - matchLabels: { app.kubernetes.io/component: egress-waypoint }
                   reason: "Istio labels its waypoint pods sidecar.istio.io/inject=false and istio.io/dataplane-mode=none: the waypoint is the mesh's own proxy, not a workload in it"
+            - policy: { kind: ValidatingAdmissionPolicy, name: require-probes }
+              workloads:
+                - matchLabels: { app.kubernetes.io/component: egress-waypoint }
+                  reason: "Istio's waypoint pods have startup and readiness probes only, with no setting for a liveness probe"
 
-  - it: the gateway exception is switched off with enabled false alone
+  - it: each gateway exception is switched off with enabled false alone
     release:
       namespace: ingress-gateway
     set:
       profiles.istio-ingress: {}
       exceptions.ingress-gateway.policies.disallow-mesh-opt-out: { enabled: false }
+    template: templates/exceptions/policyexceptions.yaml
+    asserts:
+      - lengthEqual: { path: spec.exceptions, count: 1 }
+      - equal: { path: 'spec.exceptions[0].policy.name', value: require-probes }
+
+  - it: the gateway exceptions are all switched off with enabled false
+    release:
+      namespace: ingress-gateway
+    set:
+      profiles.istio-ingress: {}
+      exceptions.ingress-gateway.policies:
+        disallow-mesh-opt-out: { enabled: false }
+        require-probes: { enabled: false }
     template: templates/exceptions/policyexceptions.yaml
     asserts:
       - equal: { path: spec.exceptions, value: [] }
@@ -264,10 +299,11 @@ tests:
     template: templates/exceptions/policyexceptions.yaml
     asserts:
       - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: "istio-egress,istio-ingress" }
-      - lengthEqual: { path: spec.exceptions, count: 1 }
+      - lengthEqual: { path: spec.exceptions, count: 2 }
       - equal: { path: 'spec.exceptions[0].workloads[0].matchLabels', value: { app.kubernetes.io/component: egress-waypoint } }
       - equal: { path: 'spec.exceptions[0].workloads[1].matchLabels', value: { app.kubernetes.io/component: ingress-gateway } }
       - lengthEqual: { path: 'spec.exceptions[0].workloads', count: 2 }
+      - lengthEqual: { path: 'spec.exceptions[1].workloads', count: 2 }
 
   - it: two gateway profiles together render without conflict (both set meshMember false)
     release:
@@ -305,7 +341,7 @@ tests:
     template: templates/exceptions/policyexceptions.yaml
     asserts:
       - equal:
-          path: spec.exceptions[5].workloads
+          path: spec.exceptions[7].workloads
           value: [{ matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart sets no seccompProfile" }]
 
   - it: the user's meshMember wins over a profile's

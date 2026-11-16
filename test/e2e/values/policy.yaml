@@ -1,17 +1,35 @@
 # The pinned policy chart, as e2e installs it (by the exceptions scenario under MESH=none,
-# before Istio otherwise): the baked-in baseline (always enforced) with the registries the e2e
-# images come from, and every other optional policy at audit, so the test pods only have to meet
-# the baseline. Images are matched as plain prefixes, so they're written fully qualified.
-enforcement: audit
+# before Istio otherwise): every policy the chart turns on by default, enforced, the ones that
+# default to audit included, as a site enforcing all of them would run it. So every Istio
+# component starts only through the posture profiles' exceptions, and a refused one is a fix to
+# that profile (charts/posture/templates/_profiles.tpl; its FailedCreate event names the
+# policy). The e2e workloads meet every one of them (test/e2e/lib.sh, workload).
+enforcement: enforce
 policies:
+  # Default on, at audit: enforced here.
+  disallow-automount-service-account-token: { action: enforce }
+  disallow-default-service-account: { action: enforce }
+  disallow-rbac-escalation-verbs: { action: enforce }
+  disallow-secrets-in-env: { action: enforce }
+  disallow-shared-process-namespace: { action: enforce }
+  require-probes: { action: enforce }
+
+  # The site's settings, as boundary's README describes them; none of them loosens a policy for
+  # posture's sake.
+  # Baked-in: the registries the run's images come from, fully qualified (prefix match).
   restrict-image-registries:
     registries:
-      - registry.k8s.io/          # agnhost
+      - registry.k8s.io/          # agnhost (AGNHOST_IMAGE)
       - docker.io/curlimages/     # curl (CURL_IMAGE)
-      - docker.io/istio/          # istiod, istio-cni, ztunnel
-  # Enforced, unlike the other optional policies: Istio's own pods carry the opt-out markers it
-  # refuses (sidecar.istio.io/inject=false, istio.io/dataplane-mode=none), so istiod and
-  # ztunnel start only because the istio-system profile excepts them. A refused component is a
-  # fix to that profile (its FailedCreate event names the policy).
-  disallow-mesh-opt-out:
-    action: enforce
+      - docker.io/istio/          # istiod, ztunnel, and the gateway and waypoint proxies
+  # Only the ingress gateways' namespace gets LoadBalancer Services (the run's gateway is
+  # ClusterIP, but a site's is a LoadBalancer).
+  restrict-loadbalancer-services:
+    namespaces: [ingress-gateway]
+  # No "*" in Roles and ClusterRoles. The istiod chart's two ClusterRoles use it (read-only "*"
+  # resources in Istio's own API groups, and "*" verbs on ingresses/status); they're Istio's,
+  # set by its chart, so they're allowed by name.
+  restrict-wildcard-rbac:
+    allowedRoles:
+      - istiod-clusterrole-istio-system
+      - istio-reader-clusterrole-istio-system

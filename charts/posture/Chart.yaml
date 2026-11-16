@@ -4,7 +4,7 @@ description: >-
   Sets the security posture of the workloads in one namespace: network policies,
   authorization policies, mTLS settings, and admission-policy exceptions.
 type: application
-version: 0.2.0
+version: 0.3.0
 home: https://github.com/jimmybchopps/posture
 sources:
   - https://github.com/jimmybchopps/posture

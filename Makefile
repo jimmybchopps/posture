@@ -14,14 +14,27 @@ K3S_IMAGE             := rancher/k3s:v1.37.2-k3s1
 CALICO_VERSION        := 3.29.0
 # Istio Helm chart version for `make e2e MESH=istio`; installed by install_istio in test/e2e/lib.sh.
 ISTIO_VERSION         := 1.32.0
-AGNHOST_IMAGE         := registry.k8s.io/e2e-test-images/agnhost:2.61
-CURL_IMAGE            := docker.io/curlimages/curl:8.23.0
+# Images by digest: e2e enforces the policy chart's require-image-digest, so Istio is installed
+# as a site running it would (istiod and ztunnel images, and the gateways' and waypoints' proxy).
+ISTIO_PILOT_IMAGE     := docker.io/istio/pilot:$(ISTIO_VERSION)-distroless@sha256:219ab7efcf1fd1f883086ad4a4a649c0e70bee3200423d6eef9f435103a79423
+ISTIO_PROXY_IMAGE     := docker.io/istio/proxyv2:$(ISTIO_VERSION)-distroless@sha256:9cd1f1cc261f3fe250ab483543e7256c39d5871eae5f1817c0809eff09e365d4
+ISTIO_ZTUNNEL_IMAGE   := docker.io/istio/ztunnel:$(ISTIO_VERSION)-distroless@sha256:953a77fc17379301de4b7c6697b1668471c9c1f6ff912c9c5b78f454ab362180
+AGNHOST_IMAGE         := registry.k8s.io/e2e-test-images/agnhost:2.61@sha256:101f3357d1ad890c3090e78ea6c6a47dc5137cbe19836796e13d5dcb2b84d2e6
+CURL_IMAGE            := docker.io/curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+# The Kubernetes Gateway API CRDs (standard channel), boundary's prerequisite: installed before
+# Istio under MESH=istio.
+GATEWAY_API_VERSION   := 1.6.0
+GATEWAY_API_SHA256    := a557172e8348f758479e9ee4000bbbb4b4aa48302a6b73461823ea5349bad56d
 MESH                  ?= none
 # The policy chart release posture pins to: its PolicyExceptions CRD (kubeconform, e2e) and its
 # chart package (e2e only). Checksums from the release's SHA256SUMS; bump all three together.
-POLICY_VERSION        := 0.2.0
+POLICY_VERSION        := 0.2.1
 POLICY_CRD_SHA256     := 0b1c6cba6754d0135454d6f7f737f49b7f833f4ee0e7d37315654117821781be
-POLICY_CHART_SHA256   := a75f49e551cebdd94b6b6d87232b055030fa0d449f7396b11257e173f854a7e4
+POLICY_CHART_SHA256   := 20a1d1789fc954f59192c9ca6d23a03db3e3531ab4080f60a7bc74e3a20c6e70
+# The boundary chart release e2e installs under MESH=istio (the gateways and the egress
+# waypoint). Checksum from the release's SHA256SUMS; bump both together.
+BOUNDARY_VERSION      := 0.1.0
+BOUNDARY_CHART_SHA256 := 4e6f0591aed80622ab877402a4d1165a6fceb33cc4357e0417df9909a9de035f
 
 # Every Helm version this chart supports; `make test-all-helm` runs the suite under each.
 HELM_VERSIONS := $(HELM_MIN_VERSION) $(HELM3_LATEST_VERSION) $(HELM_VERSION)
@@ -58,13 +71,17 @@ POLICY_CHART := $(POLICY_DIR)/policy-$(POLICY_VERSION).tgz
 SCHEMAS      := $(BIN)/schemas-policy-$(POLICY_VERSION)
 CRD_SCHEMA   := $(SCHEMAS)/policy.posture.dev/policyexceptions_v1alpha1.json
 
+# The pinned boundary release (make boundary-release) and Gateway API CRDs, for e2e only.
+BOUNDARY_CHART   := $(BIN)/boundary-$(BOUNDARY_VERSION)/boundary-$(BOUNDARY_VERSION).tgz
+GATEWAY_API_CRDS := $(BIN)/gateway-api-$(GATEWAY_API_VERSION)/standard-install.yaml
+
 UNITTEST_PLUGIN := $(HELM_PLUGINS)/helm-unittest
 UNITTEST_VERSION := $(if $(filter 3.14.%,$(HELM_VERSION)),$(HELM_UNITTEST_LEGACY_VERSION),$(HELM_UNITTEST_VERSION))
 # helm-unittest only reads tests/*_test.yaml by default; the suites are grouped by output in
 # subfolders (tests/networkpolicy/, tests/istio/), so name both levels.
 UNITTEST_FILES := -f 'tests/*_test.yaml' -f 'tests/*/*_test.yaml'
 
-.PHONY: help tools tools-e2e policy-release crd-schema lint unittest unittest-update validate check-release release-check test test-all-helm e2e clean
+.PHONY: help tools tools-e2e policy-release boundary-release crd-schema lint unittest unittest-update validate check-release release-check test test-all-helm e2e clean
 
 help:
 	@echo "make tools          install helm $(HELM_VERSION), helm-unittest, kubeconform into .bin/"
@@ -73,6 +90,7 @@ help:
 	@echo "make e2e MESH=none  k3d end-to-end tests (MESH=istio too); E2E_KEEP=1 keeps the cluster"
 	@echo "make unittest-update  regenerate example snapshots (review the diff)"
 	@echo "make policy-release   fetch and verify the pinned policy chart $(POLICY_VERSION) (CRD and package)"
+	@echo "make boundary-release fetch and verify the pinned boundary chart $(BOUNDARY_VERSION) and Gateway API CRDs (e2e)"
 	@echo "make release-check TAG=v<version>  build a release's assets into dist/, as the release workflow does"
 	@echo "HELM_VERSION=x.y.z selects the Helm version for any target."
 
@@ -121,6 +139,20 @@ $(POLICY_CHART):
 	mkdir -p $(POLICY_DIR)
 	curl -fsSL -o $@.tmp $(POLICY_URL)/$(notdir $@)
 	echo "$(POLICY_CHART_SHA256)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+
+boundary-release: $(BOUNDARY_CHART) $(GATEWAY_API_CRDS)
+
+$(BOUNDARY_CHART):
+	mkdir -p $(dir $@)
+	curl -fsSL -o $@.tmp https://github.com/jimmybchopps/boundary/releases/download/v$(BOUNDARY_VERSION)/$(notdir $@)
+	echo "$(BOUNDARY_CHART_SHA256)  $@.tmp" | sha256sum -c --quiet
+	mv $@.tmp $@
+
+$(GATEWAY_API_CRDS):
+	mkdir -p $(dir $@)
+	curl -fsSL -o $@.tmp https://github.com/kubernetes-sigs/gateway-api/releases/download/v$(GATEWAY_API_VERSION)/standard-install.yaml
+	echo "$(GATEWAY_API_SHA256)  $@.tmp" | sha256sum -c --quiet
 	mv $@.tmp $@
 
 # The chart is assembled in .bin/ because a chart can only read its own files.
@@ -183,10 +215,13 @@ test-all-helm:
 	done
 
 # Needs Docker. Extra arguments go to run.sh via E2E_ARGS (e.g. E2E_ARGS=strict).
-e2e: $(HELM) tools-e2e policy-release
+e2e: $(HELM) tools-e2e policy-release boundary-release
 	K3D=$(K3D) KUBECTL=$(KUBECTL) HELM=$(HELM) \
 	POLICY_CRD=$(POLICY_CRD) POLICY_CHART=$(POLICY_CHART) \
+	BOUNDARY_CHART=$(BOUNDARY_CHART) GATEWAY_API_CRDS=$(GATEWAY_API_CRDS) \
 	K3S_IMAGE=$(K3S_IMAGE) CALICO_VERSION=$(CALICO_VERSION) ISTIO_VERSION=$(ISTIO_VERSION) \
+	ISTIO_PILOT_IMAGE=$(ISTIO_PILOT_IMAGE) ISTIO_PROXY_IMAGE=$(ISTIO_PROXY_IMAGE) \
+	ISTIO_ZTUNNEL_IMAGE=$(ISTIO_ZTUNNEL_IMAGE) \
 	AGNHOST_IMAGE=$(AGNHOST_IMAGE) CURL_IMAGE=$(CURL_IMAGE) \
 	  test/e2e/run.sh $(MESH) $(E2E_ARGS)
 
