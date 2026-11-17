@@ -672,7 +672,7 @@ for egress through the waypoint.
 | 1 | Network policies | done (see docs/PLAN.md 1c, "Accepted failures") |
 | 2 | Authorization policies (Istio first) | done (the egress wrong-port deny is enforced by the destination's posture from 5e; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
-| 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
-| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a–5d done, 0.1.0 and 0.2.0 released; 5e (boundary integration, 0.3.0) written, its e2e not yet run |
+| 4 | Policy exceptions | done |
+| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | done (5a–5e); 0.1.0 and 0.2.0 released, 0.3.0 ready to tag after merge |
 | 6 | Linkerd renderer | not started |
 | 7 | Cilium renderer | not started |

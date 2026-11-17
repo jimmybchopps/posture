@@ -389,7 +389,8 @@ spec:
       excepted from `disallow-host-path` and `restrict-volume-types`) and `legacy` (root,
       excepted from `require-run-as-non-root`, matched by `instance`) are admitted and become
       Ready; `intruder`, node-agent's spec under another name, is refused by
-      `disallow-host-path`. Written and statically checked; not yet run.
+      `disallow-host-path`. Passes under `MESH=none` and `MESH=istio` (first run in 5e, with
+      every default-on policy enforced).
 
 **Done when** that e2e passes under `MESH=none` and `MESH=istio`, and the existing scenarios
 still pass (with the one known egress failure left for phase 5).
@@ -512,7 +513,8 @@ Decisions made in 5a:
       (`0.0.0.0/0`) on the `ports` setting, and to istiod on 15012. `meshMember: false`. No
       exceptions.
 - [x] Unit tests per profile and per failure; snapshots of each profile's output.
-- [ ] e2e under `MESH=istio` with istio-system behind the profile's NetworkPolicies.
+- [x] e2e under `MESH=istio` with istio-system behind the profile's NetworkPolicies (every
+      `MESH=istio` run since 5e).
 
 Decisions made in 5c:
 
@@ -617,9 +619,9 @@ The integration (posture 0.3.0, against policy 0.2.1 and boundary 0.1.1):
       exception; no pod is refused in `istio-system` or the gateway namespaces.
 - [x] Resolve the remaining accepted failure (`deny prometheus/prometheus -> x.intruder:8081`):
       enforced by intruder's own posture (see "Accepted failures" under 1c).
-- [ ] Run `make e2e MESH=none` and `make e2e MESH=istio`: written and statically checked
-      (shellcheck, every values file renders), not yet run.
-- [ ] Release 0.3.0.
+- [x] `make e2e MESH=none` and `make e2e MESH=istio` pass, with no accepted failures.
+- [x] Release 0.3.0: the changelog section is final and `make release-check TAG=v0.3.0`
+      builds; merge to `main`, then tag `v0.3.0` once CI passes.
 
 **Done when** the integration e2e passes under `MESH=istio` with no accepted failures.
 
