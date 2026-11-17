@@ -1,0 +1,14 @@
+# posture in apps (the boundary scenario): asks for two hosts through the default egress
+# waypoint. boundary's list (boundary.yaml) has allowed-tls only, so denied-tls reaches the
+# waypoint and is refused there. Egress otherwise stays default-deny (DNS only), so the direct
+# path to the host's address, skipping the waypoint, is blocked by NetworkPolicy.
+egress:
+  allowedHosts:
+    allowed-tls:
+      hosts: [allowed-tls.e2e.test]
+      ports: [443]
+      protocol: TLS
+    denied-tls:
+      hosts: [denied-tls.e2e.test]
+      ports: [443]
+      protocol: TLS

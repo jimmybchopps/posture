@@ -4,9 +4,11 @@
 # Setup order:
 #   MESH=none:   cluster, Calico, the PolicyExceptions CRD (every posture install renders
 #                posture-exceptions); only the exceptions scenario installs the policy chart.
-#   MESH=istio:  cluster, Calico, the policy chart (POLICY_FIRST=1: before the mesh, for the
-#                whole run), posture in istio-system with the istio-system profile
-#                (values/istio-system.yaml), then Istio, then that posture upgraded to mesh: istio.
+#   MESH=istio:  cluster, Calico, the Gateway API CRDs (boundary's prerequisite, before Istio),
+#                the policy chart (POLICY_FIRST=1: before the mesh, for the whole run), posture
+#                in istio-system with the istio-system profile (values/istio-system.yaml), then
+#                Istio, then that posture upgraded to mesh: istio. The boundary scenario adds the
+#                gateway namespaces (posture's gateway profiles) and boundary, and removes them.
 #
 # Usage: test/e2e/run.sh <none|istio> [scenario...]
 #   Normally run through `make e2e MESH=none|istio`, which installs the pinned tools and sets
@@ -17,8 +19,12 @@
 #   K3S_IMAGE, CALICO_VERSION,
 #   ISTIO_VERSION, AGNHOST_IMAGE,
 #   CURL_IMAGE                       pinned versions (set by the Makefile)
+#   ISTIO_PILOT_IMAGE, ISTIO_PROXY_IMAGE,
+#   ISTIO_ZTUNNEL_IMAGE              Istio's images by digest (MESH=istio)
 #   POLICY_CRD, POLICY_CHART         the pinned policy release's PolicyExceptions CRD and chart
 #                                    package (make policy-release)
+#   BOUNDARY_CHART, GATEWAY_API_CRDS the pinned boundary package and Gateway API CRDs
+#                                    (make boundary-release; MESH=istio)
 #   E2E_CLUSTER                      cluster name (default posture-e2e)
 #   E2E_KEEP=1                       keep the cluster and external host afterwards
 #   E2E_REUSE=1                      use an existing cluster of that name (skips setup)
@@ -41,14 +47,24 @@ HELM=${HELM:-helm}
 : "${CURL_IMAGE:?set CURL_IMAGE}"
 : "${POLICY_CRD:?set POLICY_CRD (make e2e sets it)}"
 : "${POLICY_CHART:?set POLICY_CHART (make e2e sets it)}"
+if [[ $MESH == istio ]]; then
+  : "${ISTIO_PILOT_IMAGE:?set ISTIO_PILOT_IMAGE}"
+  : "${ISTIO_PROXY_IMAGE:?set ISTIO_PROXY_IMAGE}"
+  : "${ISTIO_ZTUNNEL_IMAGE:?set ISTIO_ZTUNNEL_IMAGE}"
+  : "${BOUNDARY_CHART:?set BOUNDARY_CHART (make e2e sets it)}"
+  : "${GATEWAY_API_CRDS:?set GATEWAY_API_CRDS (make e2e sets it)}"
+fi
 POLICY_FIRST=0
 if [[ $MESH != none ]]; then POLICY_FIRST=1; fi
-export MESH HERE ROOT CLUSTER K3D KUBECTL HELM POLICY_CRD POLICY_CHART POLICY_FIRST
+# Certificates for the TLS external host and the ingress gateway (MESH=istio), removed on exit.
+CERTS=$(mktemp -d)
+export MESH HERE ROOT CLUSTER K3D KUBECTL HELM POLICY_CRD POLICY_CHART POLICY_FIRST CERTS
 
 # shellcheck source=test/e2e/lib.sh
 source "$HERE/lib.sh"
 
 teardown() {
+  rm -rf "$CERTS"
   if [[ ${E2E_KEEP:-0} == 1 ]]; then
     log "keeping cluster ${CLUSTER} (E2E_KEEP=1); delete it with: $K3D cluster delete ${CLUSTER}"
   else
@@ -73,6 +89,7 @@ else
     # As on a real cluster: the policies first (with their CRD), then posture in the mesh's
     # namespace (its exceptions and NetworkPolicies), then the mesh, whose workloads are admitted
     # against the baseline and run behind those NetworkPolicies, then posture switched to the mesh.
+    if [[ $MESH == istio ]]; then install_gateway_api; fi
     log "installing the policy chart and istio-system's posture before the mesh"
     install_policy_chart
     install_platform_posture
@@ -93,7 +110,7 @@ export EXT_IP
 
 scenarios=("$@")
 if [[ ${#scenarios[@]} -eq 0 ]]; then
-  scenarios=(minimal strict grafana-prometheus identity identity-authz-only identity-netpol-only mtls-strict mtls-permissive exceptions)
+  scenarios=(minimal strict grafana-prometheus identity identity-authz-only identity-netpol-only mtls-strict mtls-permissive exceptions boundary)
 fi
 for s in "${scenarios[@]}"; do
   run_scenario "$s"

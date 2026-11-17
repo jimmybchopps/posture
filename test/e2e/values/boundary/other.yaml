@@ -1,0 +1,3 @@
+# posture in other (the boundary scenario): asks for no hosts, so its egress NetworkPolicies
+# (deny-all-egress, DNS only) keep it off allowed-tls even though boundary's list includes it.
+{}

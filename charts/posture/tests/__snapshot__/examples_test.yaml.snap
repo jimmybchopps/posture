@@ -9,7 +9,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -24,7 +24,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec: {}
@@ -38,7 +38,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -58,7 +58,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: mtls-strict
       namespace: example
     spec:
@@ -74,7 +74,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
         istio.io/use-waypoint: default
         istio.io/use-waypoint-namespace: egress-gateway
       name: allow-egress-from-all-to-github
@@ -100,7 +100,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
         istio.io/use-waypoint: default
         istio.io/use-waypoint-namespace: egress-gateway
       name: allow-egress-from-all-to-github-content
@@ -126,7 +126,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
         istio.io/use-waypoint: legacy
         istio.io/use-waypoint-namespace: egress-gateway
       name: allow-egress-from-all-to-mirror
@@ -152,7 +152,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
         istio.io/use-waypoint: default
         istio.io/use-waypoint-namespace: egress-gateway
       name: allow-egress-from-all-to-partner-db
@@ -181,7 +181,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-ambient-probes-to-all
       namespace: example
     spec:
@@ -202,7 +202,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -219,7 +219,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -236,7 +236,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-egress-gateway
       namespace: example
     spec:
@@ -261,7 +261,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -293,7 +293,7 @@ allowed-hosts:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -318,7 +318,7 @@ exceptions:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -355,7 +355,7 @@ exceptions:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -372,7 +372,7 @@ exceptions:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -389,7 +389,7 @@ exceptions:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -419,7 +419,7 @@ exceptions:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -444,7 +444,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -459,7 +459,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -476,7 +476,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -493,7 +493,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-ingress-gateway-to-grafana
       namespace: example
     spec:
@@ -520,7 +520,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-monitoring-to-grafana
       namespace: example
     spec:
@@ -550,7 +550,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-grafana-to-postgres
       namespace: example
     spec:
@@ -580,7 +580,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-grafana-to-sso
       namespace: example
     spec:
@@ -612,7 +612,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -642,7 +642,7 @@ grafana:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -667,7 +667,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -682,7 +682,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec: {}
@@ -696,7 +696,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-web-to-api
       namespace: example
     spec:
@@ -723,7 +723,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: mtls-strict
       namespace: example
     spec:
@@ -739,7 +739,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-ambient-probes-to-all
       namespace: example
     spec:
@@ -760,7 +760,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -777,7 +777,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -794,7 +794,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-web-to-api
       namespace: example
     spec:
@@ -823,7 +823,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-web-to-api
       namespace: example
     spec:
@@ -852,7 +852,7 @@ identity:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -885,7 +885,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -900,7 +900,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec: {}
@@ -914,7 +914,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -934,7 +934,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-ingress-gateway-to-grafana
       namespace: example
     spec:
@@ -961,7 +961,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-monitoring-to-grafana
       namespace: example
     spec:
@@ -988,7 +988,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: mtls-strict
       namespace: example
     spec:
@@ -1004,7 +1004,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-ambient-probes-to-all
       namespace: example
     spec:
@@ -1025,7 +1025,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -1042,7 +1042,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -1059,7 +1059,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-ingress-gateway-to-grafana
       namespace: example
     spec:
@@ -1088,7 +1088,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-monitoring-to-grafana
       namespace: example
     spec:
@@ -1120,7 +1120,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-grafana-to-postgres
       namespace: example
     spec:
@@ -1150,7 +1150,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-grafana-to-sso
       namespace: example
     spec:
@@ -1182,7 +1182,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -1214,7 +1214,7 @@ istio:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -1239,7 +1239,7 @@ minimal:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -1254,7 +1254,7 @@ minimal:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -1271,7 +1271,7 @@ minimal:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -1288,7 +1288,7 @@ minimal:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -1318,7 +1318,7 @@ minimal:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -1343,7 +1343,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -1358,7 +1358,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec: {}
@@ -1372,7 +1372,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-plaintext-to-api
       namespace: example
     spec:
@@ -1399,7 +1399,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-web-to-api
       namespace: example
     spec:
@@ -1427,7 +1427,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-x-to-api
       namespace: example
     spec:
@@ -1455,7 +1455,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: mtls-strict
       namespace: example
     spec:
@@ -1471,7 +1471,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-plaintext-to-api
       namespace: example
     spec:
@@ -1493,7 +1493,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-ambient-probes-to-all
       namespace: example
     spec:
@@ -1514,7 +1514,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -1531,7 +1531,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -1548,7 +1548,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-web-to-api
       namespace: example
     spec:
@@ -1579,7 +1579,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-x-to-api
       namespace: example
     spec:
@@ -1613,7 +1613,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-web-to-api
       namespace: example
     spec:
@@ -1644,7 +1644,7 @@ mtls:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -1678,7 +1678,7 @@ profile-istio-egress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -1700,7 +1700,7 @@ profile-istio-egress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -1717,7 +1717,7 @@ profile-istio-egress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -1735,7 +1735,7 @@ profile-istio-egress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-all-namespaces-to-all
       namespace: example
     spec:
@@ -1759,7 +1759,7 @@ profile-istio-egress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-external
       namespace: example
     spec:
@@ -1786,7 +1786,7 @@ profile-istio-egress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-istiod
       namespace: example
     spec:
@@ -1816,7 +1816,7 @@ profile-istio-egress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -1848,7 +1848,7 @@ profile-istio-egress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -1874,7 +1874,7 @@ profile-istio-ingress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -1896,7 +1896,7 @@ profile-istio-ingress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -1913,7 +1913,7 @@ profile-istio-ingress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -1931,7 +1931,7 @@ profile-istio-ingress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-clients-to-all
       namespace: example
     spec:
@@ -1956,7 +1956,7 @@ profile-istio-ingress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-all-namespaces
       namespace: example
     spec:
@@ -1980,7 +1980,7 @@ profile-istio-ingress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-istiod
       namespace: example
     spec:
@@ -2010,7 +2010,7 @@ profile-istio-ingress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -2042,7 +2042,7 @@ profile-istio-ingress:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -2068,11 +2068,21 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
       exceptions:
+        - policy:
+            kind: ValidatingAdmissionPolicy
+            name: disallow-automount-service-account-token
+          workloads:
+            - matchLabels:
+                app.kubernetes.io/name: istiod
+              reason: istiod watches the Kubernetes API with its service account token, and the istiod chart has no setting for automountServiceAccountToken
+            - matchLabels:
+                app.kubernetes.io/name: ztunnel
+              reason: the ztunnel chart has no setting for automountServiceAccountToken
         - policy:
             kind: ValidatingAdmissionPolicy
             name: disallow-host-path
@@ -2104,6 +2114,16 @@ profile-istio-system:
             - matchLabels:
                 app.kubernetes.io/name: ztunnel
               reason: ztunnel adds NET_ADMIN, SYS_ADMIN, and NET_RAW to redirect pod traffic
+        - policy:
+            kind: ValidatingAdmissionPolicy
+            name: require-probes
+          workloads:
+            - matchLabels:
+                app.kubernetes.io/name: istiod
+              reason: the istiod chart sets a readiness probe only, with no setting for a liveness probe
+            - matchLabels:
+                app.kubernetes.io/name: ztunnel
+              reason: the ztunnel chart sets a readiness probe only, with no setting for a liveness probe
         - policy:
             kind: ValidatingAdmissionPolicy
             name: require-run-as-non-root
@@ -2138,7 +2158,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -2155,7 +2175,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -2173,7 +2193,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-all-namespaces-to-istiod
       namespace: example
     spec:
@@ -2201,7 +2221,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-apiserver-to-istiod
       namespace: example
     spec:
@@ -2228,7 +2248,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-monitoring-to-istiod
       namespace: example
     spec:
@@ -2261,7 +2281,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-monitoring-to-ztunnel
       namespace: example
     spec:
@@ -2294,7 +2314,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-istiod-to-kube-api
       namespace: example
     spec:
@@ -2326,7 +2346,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -2358,7 +2378,7 @@ profile-istio-system:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -2383,7 +2403,7 @@ prometheus:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -2398,7 +2418,7 @@ prometheus:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -2415,7 +2435,7 @@ prometheus:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -2432,7 +2452,7 @@ prometheus:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-prometheus-to-all-namespaces
       namespace: example
     spec:
@@ -2466,7 +2486,7 @@ prometheus:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:
@@ -2496,7 +2516,7 @@ prometheus:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-same-namespace
       namespace: example
     spec:
@@ -2521,7 +2541,7 @@ strict:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: posture-exceptions
       namespace: example
     spec:
@@ -2536,7 +2556,7 @@ strict:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-ingress
       namespace: example
     spec:
@@ -2553,7 +2573,7 @@ strict:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: deny-all-egress
       namespace: example
     spec:
@@ -2570,7 +2590,7 @@ strict:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-ingress-from-web-to-api
       namespace: example
     spec:
@@ -2597,7 +2617,7 @@ strict:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-web-to-api
       namespace: example
     spec:
@@ -2624,7 +2644,7 @@ strict:
         app.kubernetes.io/instance: posture
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: posture
-        helm.sh/chart: posture-0.2.0
+        helm.sh/chart: posture-0.3.0
       name: allow-egress-from-all-to-dns
       namespace: example
     spec:

@@ -4,6 +4,31 @@ Newest first, one `## X.Y.Z` section per release. A version's section stays mark
 `(unreleased)` until the release commit; the release workflow refuses a tag whose section
 still is, or whose version doesn't match `charts/posture/Chart.yaml`.
 
+## 0.3.0
+
+- The `istio-system` profile now excepts `istiod` and `ztunnel` from `require-probes`
+  (readiness probe only) and `disallow-automount-service-account-token`: the policy chart turns
+  both on by default (at audit), and Istio's charts have no setting to meet them, so a site that
+  enforces every default-on policy isn't bitten. The gateway profiles need nothing new:
+  `boundary` 0.1.1 meets those policies for the gateway and waypoint pods itself, so
+  `istio-ingress` and `istio-egress` keep their one exception, `disallow-mesh-opt-out`.
+
+  Images pinned by digest and memory limits aren't excepted: a site sets them when it installs
+  Istio (`require-image-digest`, `require-resource-limits`). Each exception can be switched off
+  with `enabled: false` like any profile entry.
+- Tested against the policy chart 0.2.1 (was 0.2.0; its PolicyExceptions CRD is unchanged), with
+  every policy it turns on by default enforced, and against `boundary` 0.1.1.
+- The 0.1.0 known limitations are resolved:
+  - The gateway profiles and `egress.allowedHosts` are covered end to end with `boundary`: an
+    approved host is reached through the egress waypoint, a host `boundary` doesn't list is
+    refused there, a namespace that didn't ask for a host can't reach it, the direct path that
+    skips the waypoint is blocked, and clients reach a backend only through the ingress
+    gateway.
+  - Under Istio ambient, an egress port limit to a meshed pod is enforced by the destination
+    namespace's own posture, which every namespace has under the policy chart. Pod-to-pod
+    traffic never passes the egress waypoint, so the source can't enforce it. The e2e now shows
+    it, with no accepted failures.
+
 ## 0.2.0
 
 - The Istio profiles now except Istio's own pods from the policy chart's

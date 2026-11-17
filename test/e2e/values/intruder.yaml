@@ -1,0 +1,20 @@
+# posture in grafana-prometheus's "intruder" namespace under MESH=istio (mesh set by the
+# harness). Under ambient, NetworkPolicy between meshed pods sees only HBONE (15008), never the
+# original port, so an egress port limit to a meshed peer holds only where the destination's
+# own posture enforces it. Under the policy chart every namespace has a posture release, so this
+# is what intruder's looks like: Prometheus may scrape x on 9100, and nothing else gets in (its
+# AuthorizationPolicies refuse prometheus -> x:8081). Egress to grafana on 3000 is allowed here,
+# so the deny of intruder -> grafana is grafana's own refusal, not intruder's default deny.
+ingress:
+  x:
+    from:
+      prometheus:
+        namespace: prometheus
+        serviceAccount: prometheus
+        ports: [9100]
+egress:
+  x:
+    to:
+      grafana:
+        namespace: grafana
+        ports: [3000]

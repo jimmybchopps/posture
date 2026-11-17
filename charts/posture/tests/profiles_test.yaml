@@ -49,9 +49,16 @@ tests:
     template: templates/exceptions/policyexceptions.yaml
     asserts:
       - equal: { path: 'metadata.annotations["posture.dev/profile"]', value: istio-system }
-      - lengthEqual: { path: spec.exceptions, count: 7 }
+      - lengthEqual: { path: spec.exceptions, count: 9 }
       - equal:
-          path: spec.exceptions[1]
+          path: spec.exceptions[0]
+          value:
+            policy: { kind: ValidatingAdmissionPolicy, name: disallow-automount-service-account-token }
+            workloads:
+              - { matchLabels: { app.kubernetes.io/name: istiod }, reason: "istiod watches the Kubernetes API with its service account token, and the istiod chart has no setting for automountServiceAccountToken" }
+              - { matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart has no setting for automountServiceAccountToken" }
+      - equal:
+          path: spec.exceptions[2]
           value:
             policy: { kind: ValidatingAdmissionPolicy, name: disallow-mesh-opt-out }
             workloads:
@@ -59,6 +66,13 @@ tests:
               - { matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "Istio labels and annotates ztunnel to keep it out of the data plane: it is the data plane" }
       - equal:
           path: spec.exceptions[5]
+          value:
+            policy: { kind: ValidatingAdmissionPolicy, name: require-probes }
+            workloads:
+              - { matchLabels: { app.kubernetes.io/name: istiod }, reason: "the istiod chart sets a readiness probe only, with no setting for a liveness probe" }
+              - { matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart sets a readiness probe only, with no setting for a liveness probe" }
+      - equal:
+          path: spec.exceptions[7]
           value:
             policy: { kind: ValidatingAdmissionPolicy, name: restrict-seccomp }
             workloads:
@@ -305,7 +319,7 @@ tests:
     template: templates/exceptions/policyexceptions.yaml
     asserts:
       - equal:
-          path: spec.exceptions[5].workloads
+          path: spec.exceptions[7].workloads
           value: [{ matchLabels: { app.kubernetes.io/name: ztunnel }, reason: "the ztunnel chart sets no seccompProfile" }]
 
   - it: the user's meshMember wins over a profile's

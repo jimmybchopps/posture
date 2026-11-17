@@ -181,6 +181,13 @@ is accepted as a known failure past phase 2 (decided with the maintainer), to be
 phase 5 (boundary integration). In general, under ambient, egress port limits to meshed
 in-cluster peers hold only where the destination's own authorization enforces them.
 
+Phase 5e update: resolved by the destination, not the egress gateway. Pod-to-pod traffic
+never passes boundary's waypoint, which carries only `allowedHosts` traffic out of the
+cluster. Under the policy chart every namespace has a posture release, so under `MESH=istio`
+`intruder` gets one (`test/e2e/values/intruder.yaml`: Prometheus on 9100 only), and its
+AuthorizationPolicy refuses 8081. Under `MESH=none` intruder keeps no rules of its own, so
+Prometheus's egress NetworkPolicy, which sees the real port there, is still what's tested.
+
 ---
 
 ## Phase 2: authorization policies (Istio ambient first)
@@ -382,7 +389,8 @@ spec:
       excepted from `disallow-host-path` and `restrict-volume-types`) and `legacy` (root,
       excepted from `require-run-as-non-root`, matched by `instance`) are admitted and become
       Ready; `intruder`, node-agent's spec under another name, is refused by
-      `disallow-host-path`. Written and statically checked; not yet run.
+      `disallow-host-path`. Passes under `MESH=none` and `MESH=istio` (first run in 5e, with
+      every default-on policy enforced).
 
 **Done when** that e2e passes under `MESH=none` and `MESH=istio`, and the existing scenarios
 still pass (with the one known egress failure left for phase 5).
@@ -505,7 +513,8 @@ Decisions made in 5a:
       (`0.0.0.0/0`) on the `ports` setting, and to istiod on 15012. `meshMember: false`. No
       exceptions.
 - [x] Unit tests per profile and per failure; snapshots of each profile's output.
-- [ ] e2e under `MESH=istio` with istio-system behind the profile's NetworkPolicies.
+- [x] e2e under `MESH=istio` with istio-system behind the profile's NetworkPolicies (every
+      `MESH=istio` run since 5e).
 
 Decisions made in 5c:
 
@@ -588,20 +597,64 @@ Before the integration (posture 0.2.0):
       output changes).
 - [x] e2e under `MESH=istio` with the policy enforced, then release 0.2.0.
 
-The integration:
+The integration (posture 0.3.0, against policy 0.2.1 and boundary 0.1.1):
 
-- [ ] The e2e harness installs `boundary` after Istio, with posture's gateway profiles in its
-      two namespaces first.
-- [ ] e2e: an approved host connects through the waypoint; a host `boundary` doesn't list is
-      refused at the waypoint; a namespace that didn't list the host can't reach it; a direct
-      path that skips the gateway is blocked by NetworkPolicy.
-- [ ] Gateway and waypoint pods are admitted with only their profile's
-      `disallow-mesh-opt-out` exception (with the policy chart installed, that policy
-      enforced).
-- [ ] Resolve the remaining accepted failure (`deny prometheus/prometheus -> x.intruder:8081`,
-      an egress port limit into a namespace without posture; see "Accepted failures" under 1c).
+- [x] Profiles except every default-on policy their components fail and can't be configured
+      to meet, audit-default ones included, so a site enforcing them all isn't bitten:
+      `istio-system` adds `require-probes` and `disallow-automount-service-account-token`
+      for istiod and ztunnel. The gateway profiles keep their one exception: boundary 0.1.1
+      meets the rest for the gateway and waypoint pods. Found
+      by rendering Istio 1.32.0's charts against policy 0.2.1.
+- [x] Pins: policy 0.2.1, boundary 0.1.1 (`make boundary-release`), Gateway API 1.6.0, and
+      Istio's, agnhost's, and curl's images by digest.
+- [x] e2e enforces every default-on policy (`test/e2e/values/policy.yaml`); the e2e workloads
+      meet all of them, and Istio is installed with digests and memory limits.
+- [x] The e2e harness installs the Gateway API CRDs before Istio, and the `boundary` scenario
+      installs posture's gateway profiles in the two gateway namespaces, then `boundary`.
+- [x] e2e (`boundary`): an approved host connects through the waypoint; a host `boundary`
+      doesn't list is refused at the waypoint (both seen in its access log); a namespace that
+      didn't list the host can't reach it; the direct path that skips the gateway is blocked by
+      NetworkPolicy; a client reaches a backend through the ingress gateway, not directly.
+- [x] Gateway and waypoint pods are admitted with only their profile's `disallow-mesh-opt-out`
+      exception; no pod is refused in `istio-system` or the gateway namespaces.
+- [x] Resolve the remaining accepted failure (`deny prometheus/prometheus -> x.intruder:8081`):
+      enforced by intruder's own posture (see "Accepted failures" under 1c).
+- [x] `make e2e MESH=none` and `make e2e MESH=istio` pass, with no accepted failures.
+- [x] Release 0.3.0: the changelog section is final and `make release-check TAG=v0.3.0`
+      builds; merge to `main`, then tag `v0.3.0` once CI passes.
 
 **Done when** the integration e2e passes under `MESH=istio` with no accepted failures.
+
+Decisions made in 5e:
+
+- The egress gateway can't enforce an egress port limit between meshed pods: that traffic
+  goes ztunnel to ztunnel over HBONE (15008) and never passes the waypoint, and ambient
+  waypoints attach to destinations, so there's no source-side port check. The destination's
+  posture enforces it, and under the policy chart every namespace has one.
+- Which exceptions a profile carries: every default-on policy, audit-default ones included,
+  that the component fails and its chart can't be configured to meet. `require-image-digest`
+  and `require-resource-limits` are met at install (digests, a memory limit), so they stay
+  the site's, as boundary's README already says.
+- The gateway profiles don't carry `require-probes` or
+  `disallow-automount-service-account-token`: boundary can configure both on the pods it
+  generates (0.1.1 adds a liveness probe and turns off the token), so by the rule above they're
+  boundary's to meet. (5e first added `require-probes` to them, before boundary 0.1.1, and
+  dropped it again.)
+- boundary in e2e runs with `mtls.mode: inherit`: mesh-wide mTLS is boundary's to test, and a
+  mesh-wide STRICT would refuse the plaintext client's baseline connection to shop that the
+  NetworkPolicy deny relies on.
+- The k3d cluster starts with k3s's bundled Gateway API CRDs disabled
+  (`--disable=gateway-api-crd`, as in boundary's harness): they conflict with the pinned
+  release that `install_gateway_api` applies.
+- `restart_workloads` leaves the Deployments Istio generates for Gateways alone: Istio owns
+  them, and no check depends on their pooled connections.
+- The first e2e run found the gateway pods refused by
+  `disallow-automount-service-account-token`. Fixed in boundary 0.1.1, not with a posture
+  exception, since it can be configured: the infrastructure ConfigMap sets
+  `automountServiceAccountToken: false` (the proxy authenticates to istiod with the projected
+  `istio-token`, not the API token). 0.1.1 also gives `istio-proxy` a liveness probe and
+  waypoints their own ServiceAccount. posture pins boundary 0.1.1.
+- Follow-up in boundary, not changed from here: bump its posture pin to 0.3.0 once released.
 
 ---
 

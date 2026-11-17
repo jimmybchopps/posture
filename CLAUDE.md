@@ -330,13 +330,18 @@ settings only the site knows.
   mesh, so `mesh: istio` there fails unless `meshMember` is false or both authorization is off
   and `mtls.mode` is inherit. A custom root namespace (`meshConfig.rootNamespace`) isn't
   detected.
+- **Which policy exceptions a profile carries:** every policy the `policy` chart turns on by
+  default, audit-default ones included (so a site that enforces all of them isn't bitten),
+  that the component fails and its upstream chart has no setting to meet. What a site can set
+  when it installs the component (images pinned by digest, a memory limit) is left to the site
+  and never excepted: `require-image-digest` and `require-resource-limits` stay the site's.
 - **What each profile renders** (`templates/_profiles.tpl`):
 
   | Profile | Rules | Exceptions |
   |---|---|---|
-  | `istio-system` | istiod: 15012 from every namespace (xDS, CA), 15017 from `apiServerCidrs` (webhooks), 15014 from `monitoring`, egress to `kube-api`; ztunnel: 15020 from `monitoring` | istiod `restrict-seccomp`; ztunnel the six it needs (privilege escalation, capabilities, root, hostPath twice, seccomp); both `disallow-mesh-opt-out` (Istio labels them out of the data plane) |
-  | `istio-ingress` | every pod: the `ports` from `clientCidrs`; egress to every namespace on 15008 (HBONE to meshed backends; a backend outside the mesh needs its own rule) and to istiod on 15012 | `disallow-mesh-opt-out` for `ingress-gateway` (selector `component`): Istio labels gateway pods `sidecar.istio.io/inject=false`; `boundary` makes them compliant with everything else |
-  | `istio-egress` | every pod: 15008 from every namespace; egress to `0.0.0.0/0` on the `ports` (`boundary`'s host list at the waypoint is the limit) and to istiod on 15012 | `disallow-mesh-opt-out` for `egress-waypoint` (selector `component`): Istio labels waypoint pods `sidecar.istio.io/inject=false` and `istio.io/dataplane-mode=none`; `boundary` makes them compliant with everything else |
+  | `istio-system` | istiod: 15012 from every namespace (xDS, CA), 15017 from `apiServerCidrs` (webhooks), 15014 from `monitoring`, egress to `kube-api`; ztunnel: 15020 from `monitoring` | istiod `restrict-seccomp`; ztunnel the six it needs (privilege escalation, capabilities, root, hostPath twice, seccomp); both `disallow-mesh-opt-out` (Istio labels them out of the data plane), `require-probes` (readiness only), and `disallow-automount-service-account-token` (neither chart has a setting for it) |
+  | `istio-ingress` | every pod: the `ports` from `clientCidrs`; egress to every namespace on 15008 (HBONE to meshed backends; a backend outside the mesh needs its own rule) and to istiod on 15012 | `disallow-mesh-opt-out` for `ingress-gateway` (selector `component`): Istio labels gateway pods `sidecar.istio.io/inject=false`; `boundary` (0.1.1 or later) makes them meet every other default-on policy |
+  | `istio-egress` | every pod: 15008 from every namespace; egress to `0.0.0.0/0` on the `ports` (`boundary`'s host list at the waypoint is the limit) and to istiod on 15012 | `disallow-mesh-opt-out` for `egress-waypoint` (selector `component`): Istio labels waypoint pods `sidecar.istio.io/inject=false` and `istio.io/dataplane-mode=none`; `boundary` (0.1.1 or later) makes them meet every other default-on policy |
 
 ## Egress to hostnames (`egress.allowedHosts`, Istio ambient)
 
@@ -439,7 +444,10 @@ Rendered when `mesh: istio`, `authorization.enabled`, and `meshMember`, independ
 `networkPolicy`.
 Only `ingress` produces authorization policies: they're enforced at the destination, so
 `egress` stays NetworkPolicy-only (under ambient, an egress port limit to a meshed peer holds
-only where the destination's own authorization enforces it).
+only where the destination's own authorization enforces it: pod-to-pod traffic goes ztunnel to
+ztunnel over 15008 and never passes the egress waypoint, which carries only `allowedHosts`
+traffic out of the cluster. Under the `policy` chart every namespace has a posture release, so
+the destination's is always there to enforce it).
 
 - `deny-all-ingress`: an AuthorizationPolicy with an empty spec (allow-nothing) for the
   namespace.
@@ -591,6 +599,8 @@ underlying commands:
     helm unittest charts/posture                      # plugin: helm-unittest
     make policy-release                               # fetch + verify the pinned policy chart
                                                       # (CRD and package) into .bin/
+    make boundary-release                             # fetch + verify the pinned boundary
+                                                      # chart and Gateway API CRDs (e2e)
     helm template t charts/posture -f examples/<x>.yaml | kubeconform -strict -summary \
       -schema-location default \
       -schema-location '.bin/schemas-policy-<version>/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
@@ -627,20 +637,32 @@ PolicyExceptions CRD. How it gets there depends on the mesh:
 
 - `MESH=none`: run.sh applies the CRD; only the `exceptions` scenario installs the policy
   chart, and uninstalls it in its teardown.
-- Any mesh: the policy chart goes in after Calico and before the mesh, as on a real cluster,
-  and stays for the whole run. Then comes posture in istio-system with the `istio-system`
+- Any mesh: the policy chart goes in after Calico (and, under Istio, the Gateway API CRDs)
+  and before the mesh, as on a real cluster, and stays for the whole run. Then comes posture
+  in istio-system with the `istio-system`
   profile (`test/e2e/values/istio-system.yaml`; `apiServerCidrs` is the k3d Docker network), so
   istiod and ztunnel are admitted and run behind its NetworkPolicies; then Istio, with
   istio-cni in `kube-system`, which the policies never evaluate; then that posture release
-  upgraded to `mesh: istio`. A refused or unreachable Istio component is a fix to the profile.
+  upgraded to `mesh: istio`. Istio is installed as a site enforcing the policy chart would
+  install it: images by digest and a memory limit (Makefile `ISTIO_*_IMAGE`). A refused or
+  unreachable Istio component is a fix to the profile.
   Pods are denied in a namespace without `posture-exceptions`, so each scenario namespace gets
   a posture release that renders only that object (`test/e2e/values/exceptions-only.yaml`)
   when it's created, as posture is the first release in any namespace; the scenario's
   `install_posture` upgrades it.
 
-e2e workloads meet the policy chart's baseline under every mesh. Images are listed fully
-qualified, because `restrict-image-registries` matches plain prefixes
-(`test/e2e/values/policy.yaml`).
+The policy chart runs with every policy it turns on by default enforced, audit-default ones
+included (`test/e2e/values/policy.yaml`), so the profiles' exceptions are shown to be complete.
+e2e workloads meet all of them under every mesh: images by digest and fully qualified
+(`restrict-image-registries` matches plain prefixes), a read-only root filesystem, requests
+and a memory limit, readiness and liveness probes, no service account token, and a service
+account of their own.
+
+The `boundary` scenario (`MESH=istio`) installs the pinned boundary release (Makefile
+`BOUNDARY_VERSION`) with posture's gateway profiles in `ingress-gateway` and `egress-gateway`
+first, and removes them afterwards. Its values are in `test/e2e/values/boundary/`. A second
+external host (`EXT_TLS`, HTTPS on 443) answers the `*.e2e.test` names that CoreDNS resolves
+for egress through the waypoint.
 
 ## Status
 
@@ -648,9 +670,9 @@ qualified, because `restrict-image-registries` matches plain prefixes
 |---|---|---|
 | 0 | Repo setup, tooling, CI | done |
 | 1 | Network policies | done (see docs/PLAN.md 1c, "Accepted failures") |
-| 2 | Authorization policies (Istio first) | done (one egress wrong-port deny is a known failure until phase 5; see docs/PLAN.md 1c) |
+| 2 | Authorization policies (Istio first) | done (the egress wrong-port deny is enforced by the destination's posture from 5e; see docs/PLAN.md 1c) |
 | 3 | mTLS with per-port exclusions | done |
-| 4 | Policy exceptions | done, except the first e2e run (see docs/PLAN.md phase 4) |
-| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | in progress: 5a–5d done, 0.1.0 released; 0.2.0 (gateway pod exceptions, before 5e) in progress |
+| 4 | Policy exceptions | done |
+| 5 | Profiles, `enabled` everywhere, egress hostnames, boundary integration (Istio) | done (5a–5e); 0.1.0 and 0.2.0 released, 0.3.0 ready to tag after merge |
 | 6 | Linkerd renderer | not started |
 | 7 | Cilium renderer | not started |
