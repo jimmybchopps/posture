@@ -595,14 +595,15 @@ Before the integration (posture 0.2.0):
       output changes).
 - [x] e2e under `MESH=istio` with the policy enforced, then release 0.2.0.
 
-The integration (posture 0.3.0, against policy 0.2.1 and boundary 0.1.0):
+The integration (posture 0.3.0, against policy 0.2.1 and boundary 0.1.1):
 
 - [x] Profiles except every default-on policy their components fail and can't be configured
       to meet, audit-default ones included, so a site enforcing them all isn't bitten:
       `istio-system` adds `require-probes` and `disallow-automount-service-account-token`
-      for istiod and ztunnel; `istio-ingress` and `istio-egress` add `require-probes`. Found
+      for istiod and ztunnel. The gateway profiles keep their one exception: boundary 0.1.1
+      meets the rest for the gateway and waypoint pods. Found
       by rendering Istio 1.32.0's charts against policy 0.2.1.
-- [x] Pins: policy 0.2.1, boundary 0.1.0 (`make boundary-release`), Gateway API 1.6.0, and
+- [x] Pins: policy 0.2.1, boundary 0.1.1 (`make boundary-release`), Gateway API 1.6.0, and
       Istio's, agnhost's, and curl's images by digest.
 - [x] e2e enforces every default-on policy (`test/e2e/values/policy.yaml`); the e2e workloads
       meet all of them, and Istio is installed with digests and memory limits.
@@ -612,8 +613,8 @@ The integration (posture 0.3.0, against policy 0.2.1 and boundary 0.1.0):
       doesn't list is refused at the waypoint (both seen in its access log); a namespace that
       didn't list the host can't reach it; the direct path that skips the gateway is blocked by
       NetworkPolicy; a client reaches a backend through the ingress gateway, not directly.
-- [x] Gateway and waypoint pods are admitted with exactly their profile's two exceptions; no
-      pod is refused in `istio-system` or the gateway namespaces.
+- [x] Gateway and waypoint pods are admitted with only their profile's `disallow-mesh-opt-out`
+      exception; no pod is refused in `istio-system` or the gateway namespaces.
 - [x] Resolve the remaining accepted failure (`deny prometheus/prometheus -> x.intruder:8081`):
       enforced by intruder's own posture (see "Accepted failures" under 1c).
 - [ ] Run `make e2e MESH=none` and `make e2e MESH=istio`: written and statically checked
@@ -632,8 +633,11 @@ Decisions made in 5e:
   that the component fails and its chart can't be configured to meet. `require-image-digest`
   and `require-resource-limits` are met at install (digests, a memory limit), so they stay
   the site's, as boundary's README already says.
-- The gateway profiles carry `require-probes` too (Istio's gateway and waypoint pods have no
-  liveness probe, and no setting for one), so they now have two exceptions, not one.
+- The gateway profiles don't carry `require-probes` or
+  `disallow-automount-service-account-token`: boundary can configure both on the pods it
+  generates (0.1.1 adds a liveness probe and turns off the token), so by the rule above they're
+  boundary's to meet. (5e first added `require-probes` to them, before boundary 0.1.1, and
+  dropped it again.)
 - boundary in e2e runs with `mtls.mode: inherit`: mesh-wide mTLS is boundary's to test, and a
   mesh-wide STRICT would refuse the plaintext client's baseline connection to shop that the
   NetworkPolicy deny relies on.
@@ -642,13 +646,13 @@ Decisions made in 5e:
   release that `install_gateway_api` applies.
 - `restart_workloads` leaves the Deployments Istio generates for Gateways alone: Istio owns
   them, and no check depends on their pooled connections.
-- Follow-ups in boundary, not changed from here: bump its posture pin to 0.3.0; its
-  integration check that a gateway namespace holds only `disallow-mesh-opt-out` must accept
-  `require-probes`; its README's compliance table (`require-probes` excepted, and a
-  `disallow-automount-service-account-token` row, since Istio's gateway and waypoint pods
-  don't set it). It should set `automountServiceAccountToken: false` through the
-  infrastructure ConfigMap; if Istio's proxy turns out to need the token, posture's gateway
-  profiles get that exception instead.
+- The first e2e run found the gateway pods refused by
+  `disallow-automount-service-account-token`. Fixed in boundary 0.1.1, not with a posture
+  exception, since it can be configured: the infrastructure ConfigMap sets
+  `automountServiceAccountToken: false` (the proxy authenticates to istiod with the projected
+  `istio-token`, not the API token). 0.1.1 also gives `istio-proxy` a liveness probe and
+  waypoints their own ServiceAccount. posture pins boundary 0.1.1.
+- Follow-up in boundary, not changed from here: bump its posture pin to 0.3.0 once released.
 
 ---
 

@@ -33,8 +33,8 @@ POLICY_CRD_SHA256     := 0b1c6cba6754d0135454d6f7f737f49b7f833f4ee0e7d3731565411
 POLICY_CHART_SHA256   := 20a1d1789fc954f59192c9ca6d23a03db3e3531ab4080f60a7bc74e3a20c6e70
 # The boundary chart release e2e installs under MESH=istio (the gateways and the egress
 # waypoint). Checksum from the release's SHA256SUMS; bump both together.
-BOUNDARY_VERSION      := 0.1.0
-BOUNDARY_CHART_SHA256 := 4e6f0591aed80622ab877402a4d1165a6fceb33cc4357e0417df9909a9de035f
+BOUNDARY_VERSION      := 0.1.1
+BOUNDARY_CHART_SHA256 := 4c2d3b112528551d38e1f5331f69ed9b0602bdefcd3886ce2d735f28f9079619
 
 # Every Helm version this chart supports; `make test-all-helm` runs the suite under each.
 HELM_VERSIONS := $(HELM_MIN_VERSION) $(HELM3_LATEST_VERSION) $(HELM_VERSION)

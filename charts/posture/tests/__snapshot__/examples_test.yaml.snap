@@ -1690,13 +1690,6 @@ profile-istio-egress:
             - matchLabels:
                 app.kubernetes.io/component: egress-waypoint
               reason: 'Istio labels its waypoint pods sidecar.istio.io/inject=false and istio.io/dataplane-mode=none: the waypoint is the mesh''s own proxy, not a workload in it'
-        - policy:
-            kind: ValidatingAdmissionPolicy
-            name: require-probes
-          workloads:
-            - matchLabels:
-                app.kubernetes.io/component: egress-waypoint
-              reason: Istio's waypoint pods have startup and readiness probes only, with no setting for a liveness probe
   2: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
@@ -1893,13 +1886,6 @@ profile-istio-ingress:
             - matchLabels:
                 app.kubernetes.io/component: ingress-gateway
               reason: 'Istio labels its gateway pods sidecar.istio.io/inject=false: the gateway is the mesh''s own proxy, not a workload in it'
-        - policy:
-            kind: ValidatingAdmissionPolicy
-            name: require-probes
-          workloads:
-            - matchLabels:
-                app.kubernetes.io/component: ingress-gateway
-              reason: Istio's gateway pods have startup and readiness probes only, with no setting for a liveness probe
   2: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy

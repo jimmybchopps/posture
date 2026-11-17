@@ -1,6 +1,6 @@
 # posture in egress-gateway (the boundary scenario): the istio-egress profile alone. HBONE in
-# from every namespace, 443 and 80 out to any address, istiod for xDS, and the exceptions for
-# the pods boundary labels app.kubernetes.io/component: egress-waypoint (disallow-mesh-opt-out,
-# require-probes).
+# from every namespace, 443 and 80 out to any address, istiod for xDS, and the
+# disallow-mesh-opt-out exception for the pods boundary labels
+# app.kubernetes.io/component: egress-waypoint.
 profiles:
   istio-egress: {}

@@ -80,8 +80,8 @@ extra() {
     read -r ns gw component <<<"$entry"
     check "[boundary] admission: ${ns}/${gw}'s pods are admitted and its Deployment is available" \
       gateway_available "$ns" "$gw"
-    check "[boundary] admission: ${ns}'s posture-exceptions holds exactly the profile's two exceptions" \
-      profile_exceptions_are "$ns" "disallow-mesh-opt-out=${component};require-probes=${component};"
+    check "[boundary] admission: ${ns}'s posture-exceptions holds only the profile's disallow-mesh-opt-out exception" \
+      profile_exceptions_are "$ns" "disallow-mesh-opt-out=${component};"
   done
   for ns in istio-system "$INGRESS_NAMESPACE" "$EGRESS_NAMESPACE"; do
     check "[boundary] admission: no pod in ${ns} was refused" no_refused_pods "$ns"
